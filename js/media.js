@@ -1,4 +1,4 @@
-/* getUserMedia + recorder helpers — no device blocking */
+/* Browser media utilities — recorders, display capture, audio mix. No camera auto-pick. */
 
 export const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -30,7 +30,7 @@ export async function playVideo(video) {
   }
 }
 
-export async function waitForVideoFrame(video, timeoutMs = 12000) {
+export async function waitForVideoFrame(video, timeoutMs = 15000) {
   if (video.videoWidth > 0 && video.readyState >= 2) return;
   await Promise.race([
     new Promise((resolve, reject) => {
@@ -51,46 +51,14 @@ export async function waitForVideoFrame(video, timeoutMs = 12000) {
       check();
     }),
     new Promise((_, reject) => {
-      setTimeout(() => reject(new Error('Video preview did not start')), timeoutMs);
+      setTimeout(() => reject(new Error('Video did not produce frames')), timeoutMs);
     }),
   ]);
-}
-
-export async function openVideoDevice(deviceId, { passthrough = false } = {}) {
-  if (!deviceId) throw new Error('Select a video device.');
-
-  const attempts = passthrough
-    ? [
-        { video: { deviceId: { ideal: deviceId } } },
-        { video: { deviceId: { exact: deviceId } } },
-        { video: true },
-      ]
-    : [
-        { video: { deviceId: { ideal: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } },
-        { video: { deviceId: { ideal: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-        { video: { deviceId: { ideal: deviceId } } },
-        { video: { deviceId: { exact: deviceId } } },
-      ];
-
-  let lastErr;
-  for (const constraints of attempts) {
-    try {
-      return await navigator.mediaDevices.getUserMedia(constraints);
-    } catch (err) {
-      lastErr = err;
-      if (err.name === 'NotAllowedError' || err.name === 'SecurityError') throw err;
-    }
-  }
-  throw lastErr || new Error('Could not open video device. Close other apps using it and try again.');
 }
 
 export function getDisplayMediaOptions(_sourceValue, includeSystemAudio) {
   if (isSafari || isIOS) return { video: true, audio: !!includeSystemAudio };
   return { video: { cursor: 'always' }, audio: !!includeSystemAudio };
-}
-
-export function supportsDisplayCapture() {
-  return !!navigator.mediaDevices?.getDisplayMedia;
 }
 
 export function supportsMediaRecorderPause() {
@@ -100,12 +68,10 @@ export function supportsMediaRecorderPause() {
 
 function pickMimeType() {
   const types = (isSafari || isIOS)
-    ? ['video/mp4', 'video/mp4;codecs="avc1,mp4a.40.2"', 'video/webm;codecs=vp8,opus', 'video/webm']
-    : ['video/mp4;codecs=h264,aac', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    ? ['video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']
+    : ['video/mp4;codecs=h264,aac', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
   for (const type of types) {
-    try {
-      if (MediaRecorder.isTypeSupported(type)) return type;
-    } catch (_) {}
+    try { if (MediaRecorder.isTypeSupported(type)) return type; } catch (_) {}
   }
   return '';
 }
@@ -115,15 +81,10 @@ export function createRecorder(stream, bitrate) {
   const options = {};
   if (preferred) options.mimeType = preferred;
   if (bitrate && !isIOS) options.videoBitsPerSecond = bitrate;
-  try {
-    const recorder = Object.keys(options).length
-      ? new MediaRecorder(stream, options)
-      : new MediaRecorder(stream);
-    return { recorder, mimeType: recorder.mimeType || preferred || 'video/webm' };
-  } catch (_) {
-    const recorder = new MediaRecorder(stream);
-    return { recorder, mimeType: recorder.mimeType || 'video/webm' };
-  }
+  const recorder = Object.keys(options).length
+    ? new MediaRecorder(stream, options)
+    : new MediaRecorder(stream);
+  return { recorder, mimeType: recorder.mimeType || preferred || 'video/webm' };
 }
 
 export function canvasCaptureFps() {
@@ -132,63 +93,6 @@ export function canvasCaptureFps() {
 
 export function mimeToExtension(mimeType) {
   return (mimeType || '').includes('mp4') ? 'mp4' : 'webm';
-}
-
-export async function requestVideoPermission() {
-  try {
-    const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-    tmp.getTracks().forEach(t => t.stop());
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-export function findPairedAudioDevice(videoDeviceId, devices) {
-  const video = devices.find(d => d.deviceId === videoDeviceId && d.kind === 'videoinput');
-  if (!video) return null;
-  const audioInputs = devices.filter(d => d.kind === 'audioinput' && d.deviceId);
-  if (!audioInputs.length) return null;
-  if (video.groupId) {
-    const mate = audioInputs.find(d => d.groupId === video.groupId);
-    if (mate) return mate;
-  }
-  const stem = video.label.split('(')[0].trim().toLowerCase();
-  if (stem.length > 2) {
-    const mate = audioInputs.find(a => a.label.toLowerCase().includes(stem));
-    if (mate) return mate;
-  }
-  const hdmiAudio = audioInputs.filter(a => /digital audio|hdmi|capture|interface|mux/i.test(a.label));
-  return hdmiAudio[0] || null;
-}
-
-async function attachPairedAudio(videoStream, videoDeviceId) {
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  const paired = findPairedAudioDevice(videoDeviceId, devices);
-  if (!paired?.deviceId) return '';
-  const audioOpts = {
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false,
-    channelCount: { ideal: 2 },
-    deviceId: { ideal: paired.deviceId },
-  };
-  try {
-    const audioStream = await navigator.mediaDevices.getUserMedia({ audio: audioOpts, video: false });
-    audioStream.getAudioTracks().forEach(t => {
-      t.enabled = true;
-      videoStream.addTrack(t);
-    });
-    return paired.label || '';
-  } catch (_) {
-    return '';
-  }
-}
-
-export async function openCaptureDevice(deviceId, { withAudio = false } = {}) {
-  const stream = await openVideoDevice(deviceId, { passthrough: false });
-  if (withAudio) await attachPairedAudio(stream, deviceId);
-  return stream;
 }
 
 let audioCtx = null;
@@ -209,24 +113,25 @@ export async function mixAudioTracks(tracks) {
   if (!audioCtx) return live;
   const dest = audioCtx.createMediaStreamDestination();
   live.forEach(t => {
-    const src = audioCtx.createMediaStreamSource(new MediaStream([t]));
-    src.connect(dest);
+    audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
   });
   return dest.stream.getAudioTracks();
 }
 
-export async function openMicStream(deviceId, excludeIds = []) {
-  const audio = deviceId
-    ? { deviceId: { ideal: deviceId } }
-    : true;
-  const constraints = { audio, video: false };
-  const stream = await navigator.mediaDevices.getUserMedia(constraints);
-  if (excludeIds.length) {
-    const settings = stream.getAudioTracks()[0]?.getSettings?.();
-    if (settings?.deviceId && excludeIds.includes(settings.deviceId)) {
-      stream.getTracks().forEach(t => t.stop());
-      throw new Error('Mic conflicts with capture audio device.');
-    }
+export async function openMicStream(deviceId) {
+  const audio = deviceId ? { deviceId: { ideal: deviceId } } : true;
+  return navigator.mediaDevices.getUserMedia({ audio, video: false });
+}
+
+/** Hidden in-DOM video for screen decode (must be attached for reliable frames). */
+export function mountHiddenVideo(id = 'screenDecode') {
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement('video');
+    el.id = id;
+    el.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none';
+    document.body.appendChild(el);
   }
-  return stream;
+  prepareVideoElement(el);
+  return el;
 }
