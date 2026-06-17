@@ -7,14 +7,25 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Test-AppExists {
+    param([string]$Name)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    $null = ibmcloud ce app get -n $Name 2>$null
+    $ok = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $prev
+    return $ok
+}
+
 Write-Host "=== Rebuild $AppName from $SourceRoot ===" -ForegroundColor Cyan
 
 ibmcloud target -g Default | Out-Null
 ibmcloud target -r $CeRegion | Out-Null
 ibmcloud ce project select -n $CeProject | Out-Null
 
-$exists = ibmcloud ce app get -n $AppName 2>$null
-if (-not $exists) {
+if (-not (Test-AppExists -Name $AppName)) {
+    Write-Host "Creating $AppName..." -ForegroundColor Yellow
     ibmcloud ce app create -n $AppName `
         --build-source $SourceRoot `
         --build-dockerfile Dockerfile `
