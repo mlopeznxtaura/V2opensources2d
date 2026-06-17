@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Screen2D V2 — app5.nextaura.fit</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css?v=260617-v2" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <div class="logo">
+        <span class="logo-dot"></span>
+        <span class="logo-text">Screen2D V2</span>
+        <span class="build-badge" title="Deployed build">build 260617-v2</span>
+      </div>
+      <div class="status-bar">
+        <span class="status-indicator" id="statusIndicator"></span>
+        <span class="status-text" id="statusText">Ready</span>
+      </div>
+      <div class="timer" id="timerDisplay">00:00:00</div>
+    </header>
+
+    <main class="main">
+      <aside class="controls-panel">
+        <section class="panel-section">
+          <h2 class="section-label">Capture Source</h2>
+          <div class="source-options">
+            <label class="source-option"><input type="radio" name="source" value="screen" checked /><div class="option-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><span>Screen</span></label>
+            <label class="source-option"><input type="radio" name="source" value="window" /><div class="option-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div><span>Window</span></label>
+            <label class="source-option"><input type="radio" name="source" value="tab" /><div class="option-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 8h18M3 8v11a2 2 0 002 2h14a2 2 0 002-2V8M3 8l2-4h14l2 4"/></svg></div><span>Tab</span></label>
+          </div>
+          <p class="caption-note">Drag the webcam circle to position it in the recording.</p>
+        </section>
+
+        <section class="panel-section">
+          <h2 class="section-label">Feed 1 — Video Input</h2>
+          <div class="toggle-row">
+            <label class="toggle-label">Enable overlay / HDMI input</label>
+            <label class="toggle"><input type="checkbox" id="captureCardToggle" /><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+          </div>
+          <div class="capture-card-options hidden" id="captureCardOptions">
+            <select id="captureCardSelect" class="mic-select"><option value="">Pick any video device…</option></select>
+            <div class="toggle-row" style="margin-top:8px">
+              <label class="toggle-label">Include device audio</label>
+              <label class="toggle"><input type="checkbox" id="captureCardAudio" checked /><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+            </div>
+            <div class="position-grid">
+              <span class="position-label">Position</span>
+              <div class="position-buttons" id="capturePosButtons">
+                <button type="button" class="pos-btn" data-pos="bottom-right">↘</button>
+                <button type="button" class="pos-btn active" data-pos="bottom-left">↙</button>
+                <button type="button" class="pos-btn" data-pos="top-right">↗</button>
+                <button type="button" class="pos-btn" data-pos="top-left">↖</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2 class="section-label">Audio</h2>
+          <div class="toggle-row"><label class="toggle-label">System Audio</label><label class="toggle"><input type="checkbox" id="systemAudio" checked /><span class="toggle-track"><span class="toggle-thumb"></span></span></label></div>
+          <div class="toggle-row"><label class="toggle-label">Microphone</label><label class="toggle"><input type="checkbox" id="micAudio" checked /><span class="toggle-track"><span class="toggle-thumb"></span></span></label></div>
+          <div class="mic-select-row" id="micSelectRow">
+            <select id="micSelect" class="mic-select"><option value="">Default Microphone</option></select>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2 class="section-label">Feed 2 — Webcam Overlay</h2>
+          <div class="toggle-row">
+            <label class="toggle-label">Enable webcam overlay</label>
+            <label class="toggle"><input type="checkbox" id="webcamToggle" /><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+          </div>
+          <div class="webcam-options" id="webcamOptions">
+            <select id="camSelect" class="mic-select"><option value="">Pick any video device…</option></select>
+            <p class="caption-note">All video inputs listed. NVIDIA Broadcast / OBS = passthrough, never edited.</p>
+            <p class="caption-status" id="webcamDeviceStatus"></p>
+            <div class="position-grid">
+              <span class="position-label">Position</span>
+              <div class="position-buttons">
+                <button class="pos-btn active" data-pos="bottom-right">↘</button>
+                <button class="pos-btn" data-pos="bottom-left">↙</button>
+                <button class="pos-btn" data-pos="top-right">↗</button>
+                <button class="pos-btn" data-pos="top-left">↖</button>
+              </div>
+            </div>
+            <div class="size-row">
+              <span class="position-label">Size</span>
+              <input type="range" id="camSize" min="200" max="600" value="320" class="size-slider" />
+              <span class="size-val" id="camSizeVal">320px</span>
+            </div>
+            <div class="virtual-bg-block" id="virtualBgBlock">
+              <div class="toggle-row">
+                <label class="toggle-label">Replace room background</label>
+                <label class="toggle"><input type="checkbox" id="virtualBgToggle" /><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+              </div>
+              <p class="caption-note">Physical webcams only. Virtual cams pass through untouched.</p>
+              <div class="virtual-bg-modes">
+                <label class="quality-opt"><input type="radio" name="virtualBgMode" value="image" checked /> Studio backdrop</label>
+                <label class="quality-opt"><input type="radio" name="virtualBgMode" value="blur" /> Blur room</label>
+                <label class="quality-opt"><input type="radio" name="virtualBgMode" value="custom" /> Custom image</label>
+              </div>
+              <div class="virtual-bg-custom hidden" id="virtualBgCustom">
+                <input type="file" id="virtualBgFile" accept="image/*" class="mic-select" />
+              </div>
+              <p class="caption-status" id="virtualBgStatus"></p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <h2 class="section-label">Captions</h2>
+          <div class="toggle-row">
+            <label class="toggle-label">Auto Captions</label>
+            <label class="toggle"><input type="checkbox" id="captionsToggle" /><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
+          </div>
+          <p class="caption-status" id="captionStatus"></p>
+        </section>
+
+        <section class="panel-section">
+          <h2 class="section-label">Quality</h2>
+          <div class="quality-options">
+            <label class="quality-opt"><input type="radio" name="quality" value="720" /> 720p</label>
+            <label class="quality-opt active-q"><input type="radio" name="quality" value="1080" checked /> 1080p</label>
+            <label class="quality-opt"><input type="radio" name="quality" value="4k" /> 4K</label>
+          </div>
+        </section>
+
+        <div class="record-actions">
+          <button class="btn-record" id="recordBtn"><span class="btn-record-dot"></span> Start Recording</button>
+          <button class="btn-pause" id="pauseBtn" disabled>Pause</button>
+          <p class="caption-note hidden" id="safariNote">Safari/iOS: use webcam or capture input if screen share fails.</p>
+        </div>
+      </aside>
+
+      <div class="preview-area">
+        <div class="preview-container" id="previewContainer">
+          <video id="screenPreview" autoplay muted playsinline></video>
+          <canvas id="composeCanvas" class="compose-canvas hidden"></canvas>
+          <video id="captureCardPip" autoplay muted playsinline class="capture-pip hidden"></video>
+          <video id="webcamPip" autoplay muted playsinline class="webcam-pip hidden"></video>
+          <div id="liveCaption" class="live-caption hidden"></div>
+          <div class="preview-idle" id="previewIdle">
+            <p>Enable a feed or click <strong>Start Recording</strong></p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="recordIntentModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 class="modal-title">Start recording?</h2>
+      <p class="modal-sub">Choose what to export when you stop.</p>
+      <label class="export-opt"><input type="checkbox" id="intentVideo" checked /> Video</label>
+      <label class="export-opt"><input type="checkbox" id="intentNotesPlan" checked /> Meeting notes &amp; PDF</label>
+      <label class="export-opt"><input type="checkbox" id="intentVtt" checked /> Captions</label>
+      <div class="modal-actions">
+        <button type="button" class="btn-pause" id="intentCancel">Cancel</button>
+        <button type="button" class="btn-record" id="intentConfirm">Record</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="exportModal" class="modal hidden">
+    <div class="modal-card">
+      <h2 class="modal-title">Export</h2>
+      <p class="modal-meta">Duration: <span id="exportDuration">—</span></p>
+      <label class="export-opt"><input type="checkbox" id="exportVideo" checked /> Video</label>
+      <label class="export-opt"><input type="checkbox" id="exportNotes" checked /> Meeting notes (.md)</label>
+      <label class="export-opt"><input type="checkbox" id="exportPdf" checked /> Action plan (PDF)</label>
+      <label class="export-opt"><input type="checkbox" id="exportVtt" checked /> Captions (.md)</label>
+      <div id="exportPreview" class="export-preview">—</div>
+      <textarea id="exportManualNotes" class="export-manual-notes" rows="4" placeholder="Optional notes…"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn-pause" id="exportCancel">Cancel</button>
+        <button type="button" class="btn-record" id="exportConfirm">Download</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="vendor/tfjs/tf.min.js"></script>
+  <script src="vendor/body-pix/body-pix.min.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js" crossorigin="anonymous"></script>
+  <script type="module" src="js/app.js?v=260617-v2"></script>
+</body>
+</html>

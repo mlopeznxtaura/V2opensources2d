@@ -1,0 +1,7 @@
+name = "nextaura-app5"
+main = "app5-proxy.js"
+compatibility_date = "2026-06-17"
+
+routes = [
+  { pattern = "app5.nextaura.fit/*", zone_name = "nextaura.fit" },
+]

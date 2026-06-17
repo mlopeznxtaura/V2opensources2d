@@ -1,0 +1,7 @@
+{
+  "name": "v2opensources2d",
+  "version": "2.0.0",
+  "description": "Screen2D V2 — screen recorder with passthrough virtual cams",
+  "license": "ISC",
+  "private": false
+}
