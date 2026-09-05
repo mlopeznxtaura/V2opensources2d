@@ -20,7 +20,7 @@ import {
   requestAudioPermission,
 } from './media.js';
 
-const BUILD = '260905-feeds';
+const BUILD = '260905-cam';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -94,6 +94,18 @@ function conflictingVideoFeedId(opening, openingId) {
   return null;
 }
 
+function captureInUseId() {
+  return captureFeed.deviceId || ($('captureCardToggle').checked ? ($('captureCardSelect')?.value?.trim() || '') : '');
+}
+
+function pickWebcamDeviceId() {
+  const taken = captureInUseId();
+  const opts = [...($('camSelect')?.options || [])].filter(o => o.value);
+  const prefer = opts.find(o => /usb camera|link camera|webcam|integrated|hd camera/i.test(o.text) && o.value !== taken);
+  if (prefer) return prefer.value;
+  return opts.find(o => o.value !== taken)?.value || '';
+}
+
 function getCapturePos() {
   return $('capturePosButtons')?.querySelector('.active')?.dataset.pos || 'bottom-left';
 }
@@ -111,8 +123,10 @@ async function boot() {
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
   const savedCam = localStorage.getItem('v2.webcam');
   const savedCap = localStorage.getItem('v2.capture');
-  if (savedCam && [...$('camSelect').options].some(o => o.value === savedCam)) $('camSelect').value = savedCam;
   if (savedCap && [...$('captureCardSelect').options].some(o => o.value === savedCap)) $('captureCardSelect').value = savedCap;
+  if (savedCam && savedCam !== savedCap && [...$('camSelect').options].some(o => o.value === savedCam)) {
+    $('camSelect').value = savedCam;
+  }
 }
 boot();
 navigator.mediaDevices?.addEventListener?.('devicechange', () => refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect')));
@@ -165,10 +179,23 @@ async function startVirtualBg() {
 function stopVirtualBg() { stopSegmentationLoop(); }
 
 async function startWebcam() {
-  const id = requireSelectedId($('camSelect'));
+  let id = $('camSelect')?.value?.trim() || '';
+  if (!id || conflictingVideoFeedId('webcam', id)) {
+    id = pickWebcamDeviceId();
+    if (id) $('camSelect').value = id;
+  }
+  if (!id) {
+    const status = $('webcamDeviceStatus');
+    if (status) status.textContent = 'Pick your USB webcam in the list — not the NearStream capture card.';
+    return;
+  }
   const label = selectedLabel($('camSelect'));
   const clash = conflictingVideoFeedId('webcam', id);
-  if (clash) assertDistinctVideoFeeds(id, clash.id, { camLabel: label, capLabel: clash.label });
+  if (clash) {
+    const status = $('webcamDeviceStatus');
+    if (status) status.textContent = `That device is already Feed 1 (${clash.label}). Pick USB CAMERA.`;
+    return;
+  }
   await webcamFeed.open(id, label);
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
   $('camSelect').value = id;
@@ -293,24 +320,15 @@ function syncCompositorPips() {
 $('webcamToggle').addEventListener('change', async () => {
   $('webcamOptions').style.display = $('webcamToggle').checked ? 'flex' : 'none';
   if (!$('webcamToggle').checked) { stopWebcam(); return; }
-  if (!$('camSelect').value) {
-    $('webcamDeviceStatus').textContent = 'Select NVIDIA Broadcast (or any cam) first, then toggle on';
-    return;
-  }
   try { await startWebcam(); } catch (e) {
-    alert(e.message);
-    $('webcamToggle').checked = false;
-    $('webcamOptions').style.display = 'none';
+    $('webcamDeviceStatus').textContent = e.message;
   }
 });
 
 $('camSelect').addEventListener('change', async () => {
   if (!$('webcamToggle').checked) return;
   try { await startWebcam(); } catch (e) {
-    alert(e.message);
-    $('webcamToggle').checked = false;
-    $('webcamOptions').style.display = 'none';
-    stopWebcam();
+    $('webcamDeviceStatus').textContent = e.message;
   }
 });
 
