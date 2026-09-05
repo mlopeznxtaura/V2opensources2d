@@ -76,12 +76,11 @@ export function supportsMediaRecorderPause() {
 }
 
 function pickMimeType() {
-  // Skip bare video/mp4: Chrome often muxes Opus into MP4, which Windows players play mute.
+  // Match app1 (260820-voice): Chrome canvas capture is reliable as WebM.
+  // Forcing H.264+AAC MP4 often yields files Windows cannot open.
   const types = (isSafari || isIOS)
     ? ['video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']
     : [
-      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
-      'video/mp4;codecs=h264,aac',
       'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
       'video/webm',

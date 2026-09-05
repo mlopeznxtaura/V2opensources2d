@@ -23,6 +23,7 @@ export function createCompositor({ screenVideo, captureCardVideo, webcamVideo, c
 
   function setPipFromElement(pipEl, containerEl, target = 'webcam') {
     if (!pipEl || !containerEl || pipEl.classList.contains('hidden')) return;
+    if (target === 'capture' && pipEl.classList.contains('capture-full-preview')) return;
     const c = containerEl.getBoundingClientRect();
     const p = pipEl.getBoundingClientRect();
     if (!c.width || !c.height) return;

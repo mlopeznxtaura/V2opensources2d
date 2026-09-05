@@ -20,7 +20,7 @@ import {
   requestAudioPermission,
 } from './media.js';
 
-const BUILD = '260905-cam';
+const BUILD = '260905-hdmi';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -72,24 +72,21 @@ function isRecording() {
   return mediaRecorder && mediaRecorder.state !== 'inactive';
 }
 
-/** Only block when the other video feed is live, or both toggles are on with the same pick. */
+/** Block only when both feeds would open the same deviceId. */
 function conflictingVideoFeedId(opening, openingId) {
+  if (!openingId) return null;
   if (opening === 'webcam') {
-    if (captureFeed.deviceId) return { id: captureFeed.deviceId, label: selectedLabel($('captureCardSelect')) };
-    if ($('captureCardToggle').checked) {
-      const pending = $('captureCardSelect')?.value?.trim();
-      if (pending && pending === openingId) {
-        return { id: pending, label: selectedLabel($('captureCardSelect')) };
-      }
+    const other = captureFeed.deviceId
+      || ($('captureCardToggle').checked ? ($('captureCardSelect')?.value?.trim() || '') : '');
+    if (other && other === openingId) {
+      return { id: other, label: selectedLabel($('captureCardSelect')) };
     }
     return null;
   }
-  if (webcamFeed.deviceId) return { id: webcamFeed.deviceId, label: selectedLabel($('camSelect')) };
-  if ($('webcamToggle').checked) {
-    const pending = $('camSelect')?.value?.trim();
-    if (pending && pending === openingId) {
-      return { id: pending, label: selectedLabel($('camSelect')) };
-    }
+  const other = webcamFeed.deviceId
+    || ($('webcamToggle').checked ? ($('camSelect')?.value?.trim() || '') : '');
+  if (other && other === openingId) {
+    return { id: other, label: selectedLabel($('camSelect')) };
   }
   return null;
 }
@@ -290,8 +287,12 @@ function applyCaptureSize(px) {
   $('capSizeVal').textContent = px + 'px';
 }
 
+function wantsHdmiMain() {
+  return document.querySelector('input[name="source"]:checked')?.value === 'hdmi';
+}
+
 function applyCapturePos(pos, { forcePip = false } = {}) {
-  const full = !forcePip && captureFeed.stream && !isRecording();
+  const full = !forcePip && captureFeed.stream && (!isRecording() || wantsHdmiMain());
   captureCardPip.style.cssText = '';
   if (full) {
     captureCardPip.className = 'capture-pip capture-full-preview';
@@ -417,37 +418,53 @@ async function startRecording() {
     if (!$('webcamToggle').checked) stopWebcam();
     recordedChunks = [];
     const audioTracks = [];
-
     const source = document.querySelector('input[name="source"]:checked')?.value || 'screen';
-    screenStream = await navigator.mediaDevices.getDisplayMedia(
-      getDisplayMediaOptions(source, $('systemAudio')?.checked),
-    );
-    screenStream.getAudioTracks().forEach(t => audioTracks.push(t));
+    const hdmiMain = source === 'hdmi';
 
-    screenDecode.srcObject = new MediaStream(screenStream.getVideoTracks());
-    await playVideo(screenDecode);
-    await waitForVideoFrame(screenDecode);
-
-    if ($('captureCardToggle').checked) {
+    if (hdmiMain) {
+      if (!$('captureCardToggle').checked) {
+        throw new Error('Enable Feed 1 (HDMI / capture card) first, or pick Screen / Window / Tab.');
+      }
       if (!captureFeed.stream) await startCapture();
-      applyCapturePos(getCapturePos(), { forcePip: true });
-      syncCompositorPips();
+      await waitForVideoFrame(captureCardPip);
+      applyCapturePos(getCapturePos());
+      compositor.setCaptureAsMain(true);
+      compositor.setCaptureEnabled(false);
       captureFeed.stream.getAudioTracks().forEach(t => {
         if ($('captureCardAudio')?.checked) audioTracks.push(t);
       });
-      compositor.setCaptureEnabled(true);
-      compositor.setCaptureAsMain(false);
     } else {
-      compositor.setCaptureEnabled(false);
-      compositor.setCaptureAsMain(false);
+      screenStream = await navigator.mediaDevices.getDisplayMedia(
+        getDisplayMediaOptions(source, $('systemAudio')?.checked),
+      );
+      screenStream.getAudioTracks().forEach(t => audioTracks.push(t));
+      screenDecode.srcObject = new MediaStream(screenStream.getVideoTracks());
+      await playVideo(screenDecode);
+      await waitForVideoFrame(screenDecode);
+
+      if ($('captureCardToggle').checked) {
+        if (!captureFeed.stream) await startCapture();
+        applyCapturePos(getCapturePos(), { forcePip: true });
+        syncCompositorPips();
+        captureFeed.stream.getAudioTracks().forEach(t => {
+          if ($('captureCardAudio')?.checked) audioTracks.push(t);
+        });
+        compositor.setCaptureEnabled(true);
+        compositor.setCaptureAsMain(false);
+      } else {
+        compositor.setCaptureEnabled(false);
+        compositor.setCaptureAsMain(false);
+      }
     }
 
     if ($('webcamToggle').checked) {
       if (!webcamFeed.stream) await startWebcam();
-      await waitForVideoFrame(webcamPip);
-      syncCompositorPips();
-      compositor.setWebcamOnCanvas(true);
-      if (isVirtualBgOn()) await startVirtualBg();
+      if (webcamFeed.stream) {
+        await waitForVideoFrame(webcamPip);
+        syncCompositorPips();
+        compositor.setWebcamOnCanvas(true);
+        if (isVirtualBgOn()) await startVirtualBg();
+      }
     }
 
     if ($('micAudio')?.checked) {
@@ -492,12 +509,12 @@ async function startRecording() {
     setStatus('recording', 'Recording');
     $('recordBtn').innerHTML = '<span class="btn-record-dot"></span> Stop Recording';
     $('recordBtn').classList.add('recording');
-    // Keep compose canvas hidden so screen/window capture cannot recapture it (app1 last-good).
     composeCanvas.classList.add('hidden');
     previewIdle?.classList.add('hidden');
-    $('recordMirrorNote')?.classList.remove('hidden');
+    if (hdmiMain) $('recordMirrorNote')?.classList.add('hidden');
+    else $('recordMirrorNote')?.classList.remove('hidden');
     $('pauseBtn').disabled = !supportsMediaRecorderPause();
-    screenStream.getVideoTracks()[0].onended = stopRecording;
+    if (screenStream?.getVideoTracks()[0]) screenStream.getVideoTracks()[0].onended = stopRecording;
   } catch (e) {
     if (e.name !== 'NotAllowedError') alert('Recording failed: ' + e.message);
     cleanupAfterRecord();
@@ -540,6 +557,7 @@ function cleanupAfterRecord() {
   try { recognition?.stop(); } catch (_) {}
   compositor.stop();
   compositor.setCaption('');
+  compositor.setCaptureAsMain(false);
   composeCanvas.classList.add('hidden');
   $('recordMirrorNote')?.classList.add('hidden');
   if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
