@@ -56,9 +56,10 @@ export class VideoFeed {
 
     const constraints = [];
     if (audioConstraint) {
-      videoAttempts.forEach(video => constraints.push({ video, audio: audioConstraint }));
+      // Pairing audio:true with the capture-card video is how Windows HDMI cards expose game sound.
+      videoAttempts.forEach(video => constraints.push({ video, audio: rawAudio(true) }));
       if (audio !== true) {
-        videoAttempts.forEach(video => constraints.push({ video, audio: rawAudio(true) }));
+        videoAttempts.forEach(video => constraints.push({ video, audio: audioConstraint }));
       }
     }
     videoAttempts.forEach(video => constraints.push({ video, audio: false }));
@@ -70,9 +71,11 @@ export class VideoFeed {
         assertOpenedDevice(stream, deviceId);
         this.stream = stream;
         this.deviceId = deviceId;
-        // Preview plays video only. Audio is monitored separately so Chrome does not mute the tracks.
-        this.videoEl.srcObject = new MediaStream(stream.getVideoTracks());
+        this.videoEl.srcObject = stream;
+        this.videoEl.dataset.hear = audio ? '1' : '';
+        this.videoEl.muted = !audio;
         await playVideo(this.videoEl);
+        if (audio) this.videoEl.muted = false;
         return stream;
       } catch (err) {
         lastErr = err;
@@ -90,14 +93,16 @@ export async function listVideoInputs() {
   return (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput' && d.deviceId);
 }
 
-export async function refreshDeviceLists(camSelect, capSelect, micSelect) {
+export async function refreshDeviceLists(camSelect, capSelect, micSelect, hdmiAudioSelect) {
   const devices = await navigator.mediaDevices.enumerateDevices();
   const camId = camSelect?.value;
   const capId = capSelect?.value;
   const micId = micSelect?.value;
+  const hdmiId = hdmiAudioSelect?.value;
   fillVideoSelect(camSelect, devices.filter(d => d.kind === 'videoinput'), camId);
   fillVideoSelect(capSelect, devices.filter(d => d.kind === 'videoinput'), capId);
   fillAudioSelect(micSelect, devices.filter(d => d.kind === 'audioinput'), micId);
+  fillAudioSelect(hdmiAudioSelect, devices.filter(d => d.kind === 'audioinput'), hdmiId, 'Auto-pair with capture card');
 }
 
 function fillVideoSelect(sel, devices, keepId) {
@@ -113,9 +118,10 @@ function fillVideoSelect(sel, devices, keepId) {
   if (keepId && [...sel.options].some(o => o.value === keepId)) sel.value = keepId;
 }
 
-function fillAudioSelect(sel, devices, keepId) {
+function fillAudioSelect(sel, devices, keepId, emptyLabel) {
   if (!sel) return;
   while (sel.options.length > 1) sel.remove(1);
+  if (emptyLabel && sel.options[0]) sel.options[0].text = emptyLabel;
   devices.forEach((d, i) => {
     const opt = document.createElement('option');
     opt.value = d.deviceId;

@@ -44,11 +44,25 @@ export function createCompositor({ screenVideo, captureCardVideo, webcamVideo, c
     };
   }
 
+  let widescreen = false;
+  function setWidescreen(on) { widescreen = !!on; }
+
+  function drawContain(video, dw, dh) {
+    const sw = video.videoWidth, sh = video.videoHeight;
+    if (!sw || !sh) return;
+    const scale = Math.min(dw / sw, dh / sh);
+    const w = sw * scale, h = sh * scale;
+    ctx.drawImage(video, (dw - w) / 2, (dh - h) / 2, w, h);
+  }
+
   function drawFrame() {
     const capReady = captureCardVideo?.srcObject && captureCardVideo.readyState >= 2 && captureCardVideo.videoWidth > 0;
     let vw = screenVideo.videoWidth || 0;
     let vh = screenVideo.videoHeight || 0;
-    if (captureAsMain && capReady) {
+    if (widescreen) {
+      vw = 1920;
+      vh = 1080;
+    } else if (captureAsMain && capReady) {
       vw = captureCardVideo.videoWidth;
       vh = captureCardVideo.videoHeight;
     }
@@ -65,14 +79,9 @@ export function createCompositor({ screenVideo, captureCardVideo, webcamVideo, c
     ctx.fillRect(0, 0, vw, vh);
 
     if (captureAsMain && capReady) {
-      const srcW = captureCardVideo.videoWidth;
-      const srcH = captureCardVideo.videoHeight;
-      const scale = Math.min(vw / srcW, vh / srcH) * 0.92;
-      const dw = srcW * scale;
-      const dh = srcH * scale;
-      ctx.drawImage(captureCardVideo, (vw - dw) / 2, (vh - dh) / 2, dw, dh);
+      drawContain(captureCardVideo, vw, vh);
     } else if (screenVideo.readyState >= 2 && screenVideo.videoWidth > 0) {
-      ctx.drawImage(screenVideo, 0, 0, vw, vh);
+      drawContain(screenVideo, vw, vh);
     }
 
     if (!captureAsMain && captureEnabled && capReady) {
@@ -122,7 +131,7 @@ export function createCompositor({ screenVideo, captureCardVideo, webcamVideo, c
 
   return {
     start, stop, setPipFromElement, setCaption, setWebcamOnCanvas,
-    setCaptureEnabled, setCaptureAsMain, setWebcamPassthrough,
+    setCaptureEnabled, setCaptureAsMain, setWebcamPassthrough, setWidescreen,
   };
 }
 

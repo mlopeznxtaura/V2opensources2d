@@ -24,6 +24,7 @@
 
 html, body {
   height: 100%;
+  overflow: hidden;
   background: var(--bg);
   color: var(--text);
   font-family: var(--sans);
@@ -129,14 +130,15 @@ html, body {
 }
 
 /* ============ LAYOUT ============ */
-.app { display: flex; flex-direction: column; min-height: 100vh; }
+.app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
 .main {
   flex: 1;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr) 280px;
   gap: 0;
   overflow: hidden;
+  min-height: 0;
 }
 
 /* ============ CONTROLS PANEL ============ */
@@ -482,11 +484,20 @@ html, body {
 }
 
 /* ============ PREVIEW AREA ============ */
+.controls-panel-right {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+
 .preview-area {
   display: flex;
   flex-direction: column;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   background: var(--bg);
+  min-width: 0;
+  min-height: 0;
 }
 
 .preview-container {
@@ -499,6 +510,16 @@ html, body {
   overflow: hidden;
   min-height: min(72vh, calc(100vh - 140px));
   border-bottom: 1px solid var(--border);
+}
+
+.preview-container.widescreen {
+  flex: 0 1 auto;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  max-height: calc(100vh - 72px);
+  min-height: 0;
+  margin: auto 0;
 }
 
 .preview-container:fullscreen {
@@ -582,15 +603,15 @@ html, body {
 
 /* HDMI/capture fills preview until screen recording starts (app1 behavior) */
 .capture-pip.capture-full-preview {
-  inset: auto;
-  left: 4% !important;
-  top: 4% !important;
-  right: 4% !important;
-  bottom: 4% !important;
-  width: auto !important;
-  height: auto !important;
-  max-width: none;
-  max-height: none;
+  inset: 0;
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
   border-radius: 0;
   border: none;
   object-fit: contain;

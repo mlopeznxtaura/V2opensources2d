@@ -20,7 +20,7 @@ import {
   requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
 } from './media.js';
 
-const BUILD = '260905-aud2';
+const BUILD = '260905-ws';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -107,6 +107,12 @@ function getCapturePos() {
   return $('capturePosButtons')?.querySelector('.active')?.dataset.pos || 'bottom-left';
 }
 
+function applyWidescreen(on) {
+  previewContainer?.classList.toggle('widescreen', !!on);
+  compositor.setWidescreen(!!on);
+  localStorage.setItem('v2.widescreen', on ? '1' : '0');
+}
+
 function getBitrate() {
   const q = document.querySelector('input[name="quality"]:checked')?.value || '1080';
   if (q === '4k') return 20_000_000;
@@ -117,16 +123,19 @@ function getBitrate() {
 // ── Boot: mic permission unlocks audio labels; skip video permission so default cam stays free.
 async function boot() {
   await requestAudioPermission();
-  await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
+  await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'), $('hdmiAudioSelect'));
   const savedCam = localStorage.getItem('v2.webcam');
   const savedCap = localStorage.getItem('v2.capture');
   if (savedCap && [...$('captureCardSelect').options].some(o => o.value === savedCap)) $('captureCardSelect').value = savedCap;
   if (savedCam && savedCam !== savedCap && [...$('camSelect').options].some(o => o.value === savedCam)) {
     $('camSelect').value = savedCam;
   }
+  const ws = localStorage.getItem('v2.widescreen');
+  if (ws === '0') $('widescreenToggle').checked = false;
+  applyWidescreen($('widescreenToggle')?.checked !== false);
 }
 boot();
-navigator.mediaDevices?.addEventListener?.('devicechange', () => refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect')));
+navigator.mediaDevices?.addEventListener?.('devicechange', () => refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'), $('hdmiAudioSelect')));
 
 function updateWebcamStatus() {
   const el = $('webcamDeviceStatus');
@@ -194,7 +203,7 @@ async function startWebcam() {
     return;
   }
   await webcamFeed.open(id, label);
-  await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
+  await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'), $('hdmiAudioSelect'));
   $('camSelect').value = id;
   localStorage.setItem('v2.webcam', id);
   await suggestWebcamMic(id);
@@ -248,21 +257,22 @@ async function startCapture() {
   const audioStatus = $('captureCardAudioStatus');
   let hdmiAudioId = false;
   if ($('captureCardAudio')?.checked) {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    hdmiAudioId = findHdmiAudioDevice(id, devices)?.deviceId || true;
+    const picked = $('hdmiAudioSelect')?.value?.trim();
+    if (picked) hdmiAudioId = picked;
+    else {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      hdmiAudioId = findHdmiAudioDevice(id, devices)?.deviceId || true;
+    }
   }
   await captureFeed.open(id, label, { audio: hdmiAudioId });
 
   const liveHdmi = (captureFeed.stream?.getAudioTracks() || []).filter(t => t.readyState === 'live');
   if (liveHdmi.length) {
     hdmiAudioStream = new MediaStream(liveHdmi);
-    const heard = await startHdmiAudioMonitor(hdmiAudioStream);
+    captureCardPip.dataset.hear = '1';
+    captureCardPip.muted = false;
     const name = liveHdmi[0].label || 'HDMI audio';
-    if (audioStatus) {
-      audioStatus.textContent = heard
-        ? `HDMI audio live: ${name}`
-        : `HDMI audio captured: ${name} — click the page if you still can’t hear preview`;
-    }
+    if (audioStatus) audioStatus.textContent = `HDMI audio live: ${name}`;
   } else if ($('captureCardAudio')?.checked) {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const mate = findHdmiAudioDevice(id, devices);
@@ -284,7 +294,7 @@ async function startCapture() {
   } else if (audioStatus) {
     audioStatus.textContent = '';
   }
-  await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
+  await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'), $('hdmiAudioSelect'));
   $('captureCardSelect').value = id;
   localStorage.setItem('v2.capture', id);
   captureFeed.show();
@@ -371,6 +381,16 @@ $('captureCardToggle').addEventListener('change', async () => {
     $('captureCardToggle').checked = false;
     $('captureCardOptions').classList.add('hidden');
   }
+});
+
+$('hdmiAudioSelect')?.addEventListener('change', async () => {
+  if ($('captureCardToggle').checked) {
+    try { await startCapture(); } catch (e) { alert(e.message); }
+  }
+});
+
+$('widescreenToggle')?.addEventListener('change', () => {
+  applyWidescreen($('widescreenToggle').checked);
 });
 
 $('captureCardSelect').addEventListener('change', async () => {
@@ -573,6 +593,7 @@ async function startRecording() {
     compositor.start();
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+    captureCardPip.muted = true;
     stopHdmiAudioMonitor();
     const canvasStream = composeCanvas.captureStream(canvasCaptureFps());
     const tracks = [...canvasStream.getVideoTracks()];
@@ -666,6 +687,7 @@ function cleanupAfterRecord() {
   if (webcamFeed.stream) webcamFeed.show();
   if (captureFeed.stream) {
     captureFeed.show();
+    if (captureCardPip.dataset.hear === '1') captureCardPip.muted = false;
     refreshCapturePreviewLayout();
   }
 }
@@ -701,5 +723,6 @@ $('captureCardOptions').classList.add('hidden');
 applyWebcamPos('bottom-right');
 applyWebcamSize(parseInt($('camSize')?.value || '240', 10));
 applyCaptureSize(parseInt($('capSize')?.value || '560', 10));
+applyWidescreen($('widescreenToggle')?.checked !== false);
 setStatus('ready', 'Ready');
 console.log('Screen2D', BUILD);
