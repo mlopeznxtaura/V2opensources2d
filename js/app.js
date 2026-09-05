@@ -11,16 +11,16 @@ import {
   buildTranscript, mergeExportCues,
 } from './plan-export.js';
 import { resetSession } from './session.js';
-import { requireSelectedId, isPassthroughCamera, trackDeviceId, findPairedAudioDevice, isHdmiCaptureAudioLabel } from './devices.js';
+import { requireSelectedId, isPassthroughCamera, trackDeviceId, findPairedAudioDevice, isHdmiCaptureAudioLabel, assertDistinctVideoFeeds } from './devices.js';
 import { VideoFeed, refreshDeviceLists, selectedLabel } from './streams.js';
 import {
   isIOS, isSafari, supportsMediaRecorderPause, playVideo, waitForVideoFrame,
   mixAudioTracks, getDisplayMediaOptions, createRecorder, canvasCaptureFps,
   mimeToExtension, openMicStream, resumeAudioContexts, mountHiddenVideo,
-  requestVideoPermission, requestAudioPermission,
+  requestAudioPermission,
 } from './media.js';
 
-const BUILD = '260905-mic';
+const BUILD = '260905-cap';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -72,6 +72,21 @@ function isRecording() {
   return mediaRecorder && mediaRecorder.state !== 'inactive';
 }
 
+function otherVideoFeedId(opening) {
+  if (opening === 'webcam') {
+    if (captureFeed.deviceId) return captureFeed.deviceId;
+    if ($('captureCardToggle').checked) return $('captureCardSelect')?.value?.trim() || '';
+    return '';
+  }
+  if (webcamFeed.deviceId) return webcamFeed.deviceId;
+  if ($('webcamToggle').checked) return $('camSelect')?.value?.trim() || '';
+  return '';
+}
+
+function getCapturePos() {
+  return $('capturePosButtons')?.querySelector('.active')?.dataset.pos || 'bottom-left';
+}
+
 function getBitrate() {
   const q = document.querySelector('input[name="quality"]:checked')?.value || '1080';
   if (q === '4k') return 20_000_000;
@@ -79,9 +94,8 @@ function getBitrate() {
   return 8_000_000;
 }
 
-// ── Boot: permission first so Chrome fills real device labels (260820-voice).
+// ── Boot: mic permission unlocks audio labels; skip video permission so default cam stays free.
 async function boot() {
-  await requestVideoPermission();
   await requestAudioPermission();
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
   const savedCam = localStorage.getItem('v2.webcam');
@@ -141,6 +155,7 @@ function stopVirtualBg() { stopSegmentationLoop(); }
 
 async function startWebcam() {
   const id = requireSelectedId($('camSelect'));
+  assertDistinctVideoFeeds(id, otherVideoFeedId('webcam'));
   const label = selectedLabel($('camSelect'));
   await webcamFeed.open(id, label);
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
@@ -187,6 +202,7 @@ function stopWebcam() {
 
 async function startCapture() {
   const id = requireSelectedId($('captureCardSelect'));
+  assertDistinctVideoFeeds(otherVideoFeedId('capture'), id);
   const label = selectedLabel($('captureCardSelect'));
   await captureFeed.open(id, label);
   if ($('captureCardAudio')?.checked) {
@@ -209,7 +225,7 @@ async function startCapture() {
   $('captureCardSelect').value = id;
   localStorage.setItem('v2.capture', id);
   captureFeed.show();
-  applyCapturePos($('capturePosButtons')?.querySelector('.active')?.dataset.pos || 'bottom-left');
+  refreshCapturePreviewLayout();
   compositor.setCaptureEnabled(true);
   previewIdle?.classList.add('hidden');
 }
@@ -217,7 +233,9 @@ async function startCapture() {
 function stopCapture() {
   captureFeed.stop();
   captureFeed.hide();
+  captureCardPip.classList.remove('capture-full-preview');
   compositor.setCaptureEnabled(false);
+  compositor.setCaptureAsMain(false);
   if (!webcamFeed.stream) previewIdle?.classList.remove('hidden');
 }
 
@@ -226,9 +244,25 @@ function applyWebcamPos(pos) {
   webcamPip.className = `webcam-pip pos-${pos}`;
 }
 
-function applyCapturePos(pos) {
+function applyCaptureSize(px) {
+  captureCardPip.style.width = px + 'px';
+  $('capSizeVal').textContent = px + 'px';
+}
+
+function applyCapturePos(pos, { forcePip = false } = {}) {
+  const full = !forcePip && captureFeed.stream && !isRecording();
   captureCardPip.style.cssText = '';
+  if (full) {
+    captureCardPip.className = 'capture-pip capture-full-preview';
+    return;
+  }
   captureCardPip.className = `capture-pip pos-${pos}`;
+  applyCaptureSize(parseInt($('capSize')?.value || '560', 10));
+}
+
+function refreshCapturePreviewLayout() {
+  applyCapturePos(getCapturePos());
+  if (!captureCardPip.classList.contains('capture-full-preview')) syncCompositorPips();
 }
 
 function applyWebcamSize(px) {
@@ -257,8 +291,12 @@ $('webcamToggle').addEventListener('change', async () => {
 });
 
 $('camSelect').addEventListener('change', async () => {
-  if ($('webcamToggle').checked) {
-    try { await startWebcam(); } catch (e) { alert(e.message); }
+  if (!$('webcamToggle').checked) return;
+  try { await startWebcam(); } catch (e) {
+    alert(e.message);
+    $('webcamToggle').checked = false;
+    $('webcamOptions').style.display = 'none';
+    stopWebcam();
   }
 });
 
@@ -274,8 +312,12 @@ $('captureCardToggle').addEventListener('change', async () => {
 });
 
 $('captureCardSelect').addEventListener('change', async () => {
-  if ($('captureCardToggle').checked) {
-    try { await startCapture(); } catch (e) { alert(e.message); }
+  if (!$('captureCardToggle').checked) return;
+  try { await startCapture(); } catch (e) {
+    alert(e.message);
+    $('captureCardToggle').checked = false;
+    $('captureCardOptions').classList.add('hidden');
+    stopCapture();
   }
 });
 
@@ -304,6 +346,12 @@ document.querySelectorAll('#capturePosButtons .pos-btn').forEach(btn => {
 
 $('camSize')?.addEventListener('input', () => {
   applyWebcamSize(parseInt($('camSize').value, 10));
+  syncCompositorPips();
+});
+
+$('capSize')?.addEventListener('input', () => {
+  if (captureCardPip.classList.contains('capture-full-preview')) return;
+  applyCaptureSize(parseInt($('capSize').value, 10));
   syncCompositorPips();
 });
 
@@ -349,11 +397,17 @@ async function startRecording() {
 
     if ($('captureCardToggle').checked) {
       if (!captureFeed.stream) await startCapture();
+      applyCapturePos(getCapturePos(), { forcePip: true });
+      syncCompositorPips();
       captureFeed.stream.getAudioTracks().forEach(t => {
         if ($('captureCardAudio')?.checked) audioTracks.push(t);
       });
       compositor.setCaptureEnabled(true);
-    } else compositor.setCaptureEnabled(false);
+      compositor.setCaptureAsMain(false);
+    } else {
+      compositor.setCaptureEnabled(false);
+      compositor.setCaptureAsMain(false);
+    }
 
     if ($('webcamToggle').checked) {
       if (!webcamFeed.stream) await startWebcam();
@@ -467,7 +521,10 @@ function cleanupAfterRecord() {
   $('recordBtn').classList.remove('recording');
   $('pauseBtn').disabled = true;
   if (webcamFeed.stream) webcamFeed.show();
-  if (captureFeed.stream) captureFeed.show();
+  if (captureFeed.stream) {
+    captureFeed.show();
+    refreshCapturePreviewLayout();
+  }
 }
 
 $('exportCancel')?.addEventListener('click', () => {
@@ -499,5 +556,6 @@ $('webcamOptions').style.display = 'none';
 $('captureCardOptions').classList.add('hidden');
 applyWebcamPos('bottom-right');
 applyWebcamSize(parseInt($('camSize')?.value || '320', 10));
+applyCaptureSize(parseInt($('capSize')?.value || '560', 10));
 setStatus('ready', 'Ready');
 console.log('Screen2D', BUILD);

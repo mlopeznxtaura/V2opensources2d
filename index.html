@@ -6,7 +6,7 @@
   <title>Screen2D V2 — app5.nextaura.fit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=260905-mic" />
+  <link rel="stylesheet" href="css/style.css?v=260905-cap" />
 </head>
 <body>
   <div class="app">
@@ -14,7 +14,7 @@
       <div class="logo">
         <span class="logo-dot"></span>
         <span class="logo-text">Screen2D V2</span>
-        <span class="build-badge" title="Deployed build">build 260905-mic</span>
+        <span class="build-badge" title="Deployed build">build 260905-cap</span>
       </div>
       <div class="status-bar">
         <span class="status-indicator" id="statusIndicator"></span>
@@ -49,7 +49,7 @@
               <label class="toggle"><input type="checkbox" id="captureCardAudio" checked /><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
             </div>
             <div class="position-grid">
-              <span class="position-label">Position</span>
+              <span class="position-label">Overlay position</span>
               <div class="position-buttons" id="capturePosButtons">
                 <button type="button" class="pos-btn" data-pos="bottom-right">↘</button>
                 <button type="button" class="pos-btn active" data-pos="bottom-left">↙</button>
@@ -57,6 +57,12 @@
                 <button type="button" class="pos-btn" data-pos="top-left">↖</button>
               </div>
             </div>
+            <div class="size-row">
+              <span class="position-label">Overlay size</span>
+              <input type="range" id="capSize" min="200" max="800" value="560" class="size-slider" />
+              <span class="size-val" id="capSizeVal">560px</span>
+            </div>
+            <p class="caption-note">HDMI fills the preview until recording; then it becomes a movable overlay on your screen share.</p>
           </div>
         </section>
 
@@ -192,6 +198,6 @@
   <script src="vendor/tfjs/tf.min.js"></script>
   <script src="vendor/body-pix/body-pix.min.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js" crossorigin="anonymous"></script>
-  <script type="module" src="js/app.js?v=260905-mic"></script>
+  <script type="module" src="js/app.js?v=260905-cap"></script>
 </body>
 </html>
