@@ -20,7 +20,7 @@ import {
   requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
 } from './media.js';
 
-const BUILD = '260905-fix';
+const BUILD = '260905-notes';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -498,6 +498,9 @@ $('recordBtn').addEventListener('click', () => {
 $('intentCancel')?.addEventListener('click', () => $('recordIntentModal')?.classList.add('hidden'));
 $('intentConfirm')?.addEventListener('click', async () => {
   $('recordIntentModal')?.classList.add('hidden');
+  if ($('intentNotesPlan')?.checked || $('intentVtt')?.checked) {
+    if ($('captionsToggle')) $('captionsToggle').checked = true;
+  }
   await startRecording();
 });
 
@@ -718,7 +721,13 @@ $('exportConfirm')?.addEventListener('click', () => {
   }
   if ($('exportNotes')?.checked) downloadText(`${base}-notes.md`, buildMeetingNotes(cues, meta));
   if ($('exportVtt')?.checked) downloadText(`${base}-captions.md`, buildCaptionsMd(cues, meta));
-  if ($('exportPdf')?.checked) downloadActionPlanPdf({ cues, meta, jsPDF: window.jspdf?.jsPDF });
+  if ($('exportPdf')?.checked) {
+    try {
+      downloadActionPlanPdf({ cues, meta, jsPDF: window.jspdf?.jsPDF });
+    } catch (err) {
+      alert('Action plan PDF could not be built: ' + (err.message || err) + '. Meeting notes markdown still downloads if selected.');
+    }
+  }
   $('exportModal').classList.add('hidden');
   pendingExport = null;
   resetSession({ captionCues, recordedChunks, clearPendingExport: () => {} });
