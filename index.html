@@ -6,7 +6,7 @@
   <title>Screen2D V2 — app5.nextaura.fit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=260905-hdmi" />
+  <link rel="stylesheet" href="css/style.css?v=260905-aud" />
 </head>
 <body>
   <div class="app">
@@ -14,7 +14,7 @@
       <div class="logo">
         <span class="logo-dot"></span>
         <span class="logo-text">Screen2D V2</span>
-        <span class="build-badge" title="Deployed build">build 260905-hdmi</span>
+        <span class="build-badge" title="Deployed build">build 260905-aud</span>
       </div>
       <div class="status-bar">
         <span class="status-indicator" id="statusIndicator"></span>
@@ -27,7 +27,7 @@
       <aside class="controls-panel">
         <section class="panel-section">
           <h2 class="section-label">Capture Source</h2>
-          <div class="source-options">
+          <div class="source-options source-options-4">
             <label class="source-option"><input type="radio" name="source" value="hdmi" checked /><div class="option-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M8 21h8"/></svg></div><span>HDMI</span></label>
             <label class="source-option"><input type="radio" name="source" value="screen" /><div class="option-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><span>Screen</span></label>
             <label class="source-option"><input type="radio" name="source" value="window" /><div class="option-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div><span>Window</span></label>
@@ -49,6 +49,7 @@
               <label class="toggle-label">Include device audio</label>
               <label class="toggle"><input type="checkbox" id="captureCardAudio" checked /><span class="toggle-track"><span class="toggle-thumb"></span></span></label>
             </div>
+            <p class="caption-status" id="captureCardAudioStatus"></p>
             <div class="position-grid">
               <span class="position-label">Overlay position</span>
               <div class="position-buttons" id="capturePosButtons">
@@ -199,6 +200,6 @@
   <script src="vendor/tfjs/tf.min.js"></script>
   <script src="vendor/body-pix/body-pix.min.umd.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js" crossorigin="anonymous"></script>
-  <script type="module" src="js/app.js?v=260905-hdmi"></script>
+  <script type="module" src="js/app.js?v=260905-aud"></script>
 </body>
 </html>

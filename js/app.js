@@ -11,16 +11,16 @@ import {
   buildTranscript, mergeExportCues,
 } from './plan-export.js';
 import { resetSession } from './session.js';
-import { requireSelectedId, isPassthroughCamera, trackDeviceId, findPairedAudioDevice, isHdmiCaptureAudioLabel, assertDistinctVideoFeeds } from './devices.js';
+import { requireSelectedId, isPassthroughCamera, trackDeviceId, findPairedAudioDevice, isHdmiCaptureAudioLabel, assertDistinctVideoFeeds, findHdmiAudioDevice } from './devices.js';
 import { VideoFeed, refreshDeviceLists, selectedLabel } from './streams.js';
 import {
   isIOS, isSafari, supportsMediaRecorderPause, playVideo, waitForVideoFrame,
   mixAudioTracks, getDisplayMediaOptions, createRecorder, canvasCaptureFps,
   mimeToExtension, openMicStream, resumeAudioContexts, mountHiddenVideo,
-  requestAudioPermission,
+  requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
 } from './media.js';
 
-const BUILD = '260905-hdmi';
+const BUILD = '260905-aud';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -40,7 +40,7 @@ const compositor = createCompositor({
   canvas: composeCanvas,
 });
 
-let screenStream = null;
+let hdmiAudioStream = null;
 let micStream = null;
 let mixedStream = null;
 let mediaRecorder = null;
@@ -243,21 +243,36 @@ async function startCapture() {
   const clash = conflictingVideoFeedId('capture', id);
   if (clash) assertDistinctVideoFeeds(clash.id, id, { camLabel: clash.label, capLabel: label });
   await captureFeed.open(id, label);
+  stopHdmiAudioMonitor();
+  if (hdmiAudioStream) { hdmiAudioStream.getTracks().forEach(t => t.stop()); hdmiAudioStream = null; }
+  const audioStatus = $('captureCardAudioStatus');
   if ($('captureCardAudio')?.checked) {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const video = devices.find(d => d.deviceId === id);
-    const mate = video?.groupId
-      ? devices.find(d => d.kind === 'audioinput' && d.groupId === video.groupId)
-      : null;
+    const mate = findHdmiAudioDevice(id, devices);
     if (mate?.deviceId) {
       try {
-        const audio = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: { ideal: mate.deviceId }, echoCancellation: false, noiseSuppression: false },
-          video: false,
-        });
-        audio.getAudioTracks().forEach(t => captureFeed.stream.addTrack(t));
-      } catch (_) {}
+        hdmiAudioStream = await openHdmiAudioStream(mate.deviceId);
+        hdmiAudioStream.getAudioTracks().forEach(t => captureFeed.stream.addTrack(t));
+        captureCardPip.dataset.hear = '1';
+        captureCardPip.srcObject = captureFeed.stream;
+        captureCardPip.muted = false;
+        await playVideo(captureCardPip);
+        captureCardPip.muted = false;
+        const heard = await startHdmiAudioMonitor(hdmiAudioStream);
+        if (audioStatus) {
+          audioStatus.textContent = heard
+            ? `HDMI audio live: ${mate.label}`
+            : `HDMI audio captured: ${mate.label} — click the page if you still can’t hear preview`;
+        }
+      } catch (err) {
+        if (audioStatus) audioStatus.textContent = `Could not open HDMI audio (${mate.label}): ${err.message}`;
+      }
+    } else if (audioStatus) {
+      audioStatus.textContent = 'No HDMI audio device found (look for NearStream / Digital Audio). Voice mic is separate.';
     }
+  } else if (audioStatus) {
+    audioStatus.textContent = '';
+    captureCardPip.muted = true;
   }
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
   $('captureCardSelect').value = id;
@@ -269,6 +284,10 @@ async function startCapture() {
 }
 
 function stopCapture() {
+  stopHdmiAudioMonitor();
+  if (hdmiAudioStream) { hdmiAudioStream.getTracks().forEach(t => t.stop()); hdmiAudioStream = null; }
+  captureCardPip.muted = true;
+  captureCardPip.dataset.hear = '';
   captureFeed.stop();
   captureFeed.hide();
   captureCardPip.classList.remove('capture-full-preview');
@@ -388,6 +407,51 @@ $('capSize')?.addEventListener('input', () => {
   syncCompositorPips();
 });
 
+let dragging = false, dragOffX = 0, dragOffY = 0, dragTarget = null;
+
+function startPipDrag(e, el) {
+  if (el === captureCardPip && el.classList.contains('capture-full-preview')) return;
+  dragging = true;
+  dragTarget = el;
+  const rect = el.getBoundingClientRect();
+  dragOffX = e.clientX - rect.left;
+  dragOffY = e.clientY - rect.top;
+  el.style.transition = 'none';
+  e.preventDefault();
+}
+
+webcamPip.addEventListener('mousedown', e => startPipDrag(e, webcamPip));
+captureCardPip.addEventListener('mousedown', e => startPipDrag(e, captureCardPip));
+webcamPip.addEventListener('touchstart', e => {
+  if (!e.touches?.[0]) return;
+  const t = e.touches[0];
+  startPipDrag({ clientX: t.clientX, clientY: t.clientY, preventDefault: () => e.preventDefault() }, webcamPip);
+}, { passive: false });
+
+document.addEventListener('mousemove', e => {
+  if (!dragging || !dragTarget) return;
+  const container = previewContainer.getBoundingClientRect();
+  const w = dragTarget.offsetWidth || 320;
+  const h = dragTarget.offsetHeight || 320;
+  let x = e.clientX - container.left - dragOffX;
+  let y = e.clientY - container.top - dragOffY;
+  x = Math.max(0, Math.min(x, container.width - w));
+  y = Math.max(0, Math.min(y, container.height - h));
+  dragTarget.style.left = x + 'px';
+  dragTarget.style.top = y + 'px';
+  dragTarget.style.right = 'auto';
+  dragTarget.style.bottom = 'auto';
+  syncCompositorPips();
+});
+
+document.addEventListener('mouseup', () => {
+  if (!dragging) return;
+  dragging = false;
+  if (dragTarget) dragTarget.style.transition = '';
+  dragTarget = null;
+  syncCompositorPips();
+});
+
 // ── Recording ──
 $('recordBtn').addEventListener('click', () => {
   if (!isRecording()) $('recordIntentModal')?.classList.remove('hidden');
@@ -431,8 +495,16 @@ async function startRecording() {
       compositor.setCaptureAsMain(true);
       compositor.setCaptureEnabled(false);
       captureFeed.stream.getAudioTracks().forEach(t => {
-        if ($('captureCardAudio')?.checked) audioTracks.push(t);
+        if ($('captureCardAudio')?.checked) { t.enabled = true; audioTracks.push(t); }
       });
+      if (hdmiAudioStream) {
+        hdmiAudioStream.getAudioTracks().forEach(t => {
+          if ($('captureCardAudio')?.checked && !audioTracks.includes(t)) {
+            t.enabled = true;
+            audioTracks.push(t);
+          }
+        });
+      }
     } else {
       screenStream = await navigator.mediaDevices.getDisplayMedia(
         getDisplayMediaOptions(source, $('systemAudio')?.checked),
@@ -447,8 +519,16 @@ async function startRecording() {
         applyCapturePos(getCapturePos(), { forcePip: true });
         syncCompositorPips();
         captureFeed.stream.getAudioTracks().forEach(t => {
-          if ($('captureCardAudio')?.checked) audioTracks.push(t);
+          if ($('captureCardAudio')?.checked) { t.enabled = true; audioTracks.push(t); }
         });
+        if (hdmiAudioStream) {
+          hdmiAudioStream.getAudioTracks().forEach(t => {
+            if ($('captureCardAudio')?.checked && !audioTracks.includes(t)) {
+              t.enabled = true;
+              audioTracks.push(t);
+            }
+          });
+        }
         compositor.setCaptureEnabled(true);
         compositor.setCaptureAsMain(false);
       } else {
@@ -603,6 +683,7 @@ $('exportConfirm')?.addEventListener('click', () => {
   resetSession({ captionCues, recordedChunks, clearPendingExport: () => {} });
 });
 
+document.addEventListener('click', () => { resumeAudioContexts(); if (hdmiAudioStream) startHdmiAudioMonitor(hdmiAudioStream); }, { once: true });
 $('webcamOptions').style.display = 'none';
 $('captureCardOptions').classList.add('hidden');
 applyWebcamPos('bottom-right');

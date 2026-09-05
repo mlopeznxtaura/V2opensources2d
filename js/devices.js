@@ -62,6 +62,26 @@ export function isHdmiCaptureAudioLabel(label) {
     && !/webcam|microphone array|headset|usb camera|link camera/.test(l);
 }
 
+export function findHdmiAudioDevice(videoDeviceId, devices) {
+  const audioInputs = devices.filter(d => d.kind === 'audioinput' && d.deviceId);
+  const hdmiLike = audioInputs.filter(d => isHdmiCaptureAudioLabel(d.label));
+  const video = devices.find(d => d.deviceId === videoDeviceId && d.kind === 'videoinput');
+
+  const usbMatch = video?.label.match(/\(([0-9a-f]{4}:[0-9a-f]{4})\)/i);
+  if (usbMatch) {
+    const mate = hdmiLike.find(a => a.label.toLowerCase().includes(usbMatch[1].toLowerCase()));
+    if (mate) return mate;
+  }
+  const stem = (video?.label || '').split('(')[0].trim().toLowerCase();
+  if (stem.length > 2) {
+    const mate = hdmiLike.find(a => a.label.toLowerCase().includes(stem));
+    if (mate) return mate;
+  }
+  const paired = findPairedAudioDevice(videoDeviceId, devices);
+  if (paired && isHdmiCaptureAudioLabel(paired.label)) return paired;
+  return hdmiLike[0] || null;
+}
+
 /** Pair a camera/capture-card video device to its sibling microphone (groupId, USB id, or name). */
 export function findPairedAudioDevice(videoDeviceId, devices) {
   const video = devices.find(d => d.deviceId === videoDeviceId && d.kind === 'videoinput');
