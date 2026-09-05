@@ -6,7 +6,7 @@
   <title>Screen2D V2 — app5.nextaura.fit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=260905-notes" />
+  <link rel="stylesheet" href="css/style.css?v=260905-pdf" />
 </head>
 <body>
   <div class="app">
@@ -14,7 +14,7 @@
       <div class="logo">
         <span class="logo-dot"></span>
         <span class="logo-text">Screen2D V2</span>
-        <span class="build-badge" title="Deployed build">build 260905-notes</span>
+        <span class="build-badge" title="Deployed build">build 260905-pdf</span>
       </div>
       <div class="status-bar">
         <span class="status-indicator" id="statusIndicator"></span>
@@ -55,6 +55,11 @@
             </div>
             <select id="hdmiAudioSelect" class="mic-select"><option value="">Auto-pair with capture card</option></select>
             <p class="caption-status" id="captureCardAudioStatus"></p>
+            <div class="size-row">
+              <span class="position-label">Game volume</span>
+              <input type="range" id="hdmiVol" min="0" max="100" value="35" class="size-slider" />
+              <span class="size-val" id="hdmiVolVal">35%</span>
+            </div>
             <div class="position-grid">
               <span class="position-label">Overlay position</span>
               <div class="position-buttons" id="capturePosButtons">
@@ -206,7 +211,6 @@
 
   <script src="vendor/tfjs/tf.min.js"></script>
   <script src="vendor/body-pix/body-pix.min.umd.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js" crossorigin="anonymous"></script>
-  <script type="module" src="js/app.js?v=260905-notes"></script>
+  <script type="module" src="js/app.js?v=260905-pdf"></script>
 </body>
 </html>

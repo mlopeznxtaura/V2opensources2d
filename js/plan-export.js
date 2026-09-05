@@ -106,73 +106,32 @@ export function downloadText(filename, content, mime = 'text/markdown') {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-export function downloadActionPlanPdf({ cues, meta = {}, jsPDF }) {
-  if (!jsPDF) throw new Error('jsPDF not loaded');
+export function downloadActionPlanPdf({ cues, meta = {} }) {
   const transcript = buildTranscript(cues);
   const actions = extractActionItems(transcript);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter' });
-  const margin = 48;
-  let y = margin;
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.text(meta.title || 'Action Plan', margin, y);
-  y += 22;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  doc.setTextColor(100);
-  doc.text(`Generated ${new Date().toLocaleString()}`, margin, y);
-  y += 24;
-  doc.setTextColor(0);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12);
-  doc.text('Next action items', margin, y);
-  y += 18;
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-
+  const lines = [];
+  lines.push({ text: meta.title || 'Action Plan', size: 18, bold: true });
+  lines.push({ text: `Generated ${new Date().toLocaleString()}`, size: 10 });
+  lines.push({ text: '', size: 10 });
+  lines.push({ text: 'Next action items', size: 13, bold: true });
   if (!actions.length) {
-    const msg = transcript
-      ? 'No explicit action items detected. Review transcript below and add tasks manually.'
-      : 'No transcript available. Re-record with Auto Captions and microphone enabled.';
-    const wrapped = doc.splitTextToSize(msg, 516);
-    doc.text(wrapped, margin, y);
-    y += wrapped.length * 14 + 16;
+    lines.push({
+      text: transcript
+        ? 'No explicit action items detected. Review the transcript and add tasks manually.'
+        : 'No transcript available. Re-record with Auto Captions and microphone enabled.',
+      size: 11,
+    });
   } else {
-    actions.forEach((item, i) => {
-      const line = `${i + 1}. ${item}`;
-      const wrapped = doc.splitTextToSize(line, 516);
-      if (y + wrapped.length * 14 > 720) {
-        doc.addPage();
-        y = margin;
-      }
-      doc.text(wrapped, margin, y);
-      y += wrapped.length * 14 + 8;
-    });
+    actions.forEach((item, i) => lines.push({ text: `${i + 1}. ${item}`, size: 11 }));
   }
-
   if (transcript) {
-    if (y > 600) { doc.addPage(); y = margin; }
-    y += 12;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text('Source transcript (excerpt)', margin, y);
-    y += 16;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    const excerpt = transcript.length > 1200 ? transcript.slice(0, 1200) + '…' : transcript;
-    doc.splitTextToSize(excerpt, 516).forEach(line => {
-      if (y > 720) { doc.addPage(); y = margin; }
-      doc.text(line, margin, y);
-      y += 13;
-    });
+    lines.push({ text: '', size: 10 });
+    lines.push({ text: 'Source transcript (excerpt)', size: 13, bold: true });
+    const excerpt = transcript.length > 1800 ? transcript.slice(0, 1800) + '…' : transcript;
+    wrapPlain(excerpt, 90).forEach(t => lines.push({ text: t, size: 10 }));
   }
-
   const base = meta.basename || `recording-${Date.now()}`;
-  doc.save(`${base}-action-plan.pdf`);
+  saveSimplePdf(`${base}-action-plan.pdf`, lines);
 }
 
 export function buildCaptionsMd(cues, meta = {}) {
@@ -220,4 +179,81 @@ function formatDuration(ms) {
   const sec = s % 60;
   if (h) return `${h}h ${m}m ${sec}s`;
   return `${m}m ${sec}s`;
+}
+
+function wrapPlain(text, maxChars) {
+  const words = String(text || '').split(/\s+/).filter(Boolean);
+  const out = [];
+  let cur = '';
+  for (const w of words) {
+    const next = cur ? `${cur} ${w}` : w;
+    if (next.length > maxChars) {
+      if (cur) out.push(cur);
+      cur = w;
+    } else cur = next;
+  }
+  if (cur) out.push(cur);
+  return out.length ? out : [''];
+}
+
+function pdfEscape(s) {
+  return String(s)
+    .replace(/[^\x20-\x7e]/g, '?')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
+}
+
+function saveSimplePdf(filename, lines) {
+  const pageW = 612, pageH = 792, margin = 48;
+  const pages = [];
+  let y = pageH - margin;
+  let page = [];
+  const flush = () => { pages.push(page); page = []; y = pageH - margin; };
+  for (const row of lines) {
+    const size = row.size || 11;
+    const chunks = wrapPlain(row.text || ' ', 92);
+    for (const chunk of chunks) {
+      if (y < margin + 24) flush();
+      page.push(`BT /F1 ${size} Tf ${margin} ${y} Td (${pdfEscape(chunk)}) Tj ET`);
+      y -= size + 5;
+    }
+    y -= 4;
+  }
+  if (page.length) pages.push(page);
+  if (!pages.length) pages.push(['BT /F1 11 Tf 48 720 Td (Action Plan) Tj ET']);
+
+  const fontObjId = 3;
+  let next = 4;
+  const contentObjIds = pages.map(() => next++);
+  const pageObjIds = pages.map(() => next++);
+
+  let pdf = '%PDF-1.4\n';
+  const off = [0];
+  const emit = (n, payload) => {
+    off[n] = pdf.length;
+    pdf += `${n} 0 obj\n${payload}\nendobj\n`;
+  };
+  emit(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  emit(2, `<< /Type /Pages /Kids [${pageObjIds.map(n => `${n} 0 R`).join(' ')}] /Count ${pages.length} >>`);
+  emit(fontObjId, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  pages.forEach((cmds, i) => {
+    const stream = cmds.join('\n');
+    emit(contentObjIds[i], `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+    emit(pageObjIds[i], `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageW} ${pageH}] /Resources << /Font << /F1 ${fontObjId} 0 R >> >> /Contents ${contentObjIds[i]} 0 R >>`);
+  });
+  const xref = pdf.length;
+  const count = off.length;
+  pdf += `xref\n0 ${count}\n`;
+  pdf += '0000000000 65535 f \n';
+  for (let i = 1; i < count; i++) {
+    pdf += `${String(off[i]).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  const blob = new Blob([pdf], { type: 'application/pdf' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
 }

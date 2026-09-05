@@ -18,9 +18,10 @@ import {
   mixAudioTracks, getDisplayMediaOptions, createRecorder, canvasCaptureFps,
   mimeToExtension, openMicStream, resumeAudioContexts, mountHiddenVideo,
   requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
+  setHdmiVolume, stopAudioMix,
 } from './media.js';
 
-const BUILD = '260905-notes';
+const BUILD = '260905-pdf';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -438,6 +439,12 @@ $('camSize')?.addEventListener('input', () => {
   syncCompositorPips();
 });
 
+$('hdmiVol')?.addEventListener('input', () => {
+  const v = parseInt($('hdmiVol').value, 10);
+  $('hdmiVolVal').textContent = v + '%';
+  setHdmiVolume(v / 100);
+});
+
 $('capSize')?.addEventListener('input', () => {
   if (captureCardPip.classList.contains('capture-full-preview')) return;
   applyCaptureSize(parseInt($('capSize').value, 10));
@@ -607,10 +614,10 @@ async function startRecording() {
     stopHdmiAudioMonitor();
     const canvasStream = composeCanvas.captureStream(canvasCaptureFps());
     const tracks = [...canvasStream.getVideoTracks()];
-    const mixedAudio = await mixAudioTracks(audioTracks, { hear: true });
+    const hdmiTracks = hdmiAudioStream ? [...hdmiAudioStream.getAudioTracks()] : [];
+    const mixedAudio = await mixAudioTracks(audioTracks, { hear: true, hdmiTracks });
     mixedAudio.forEach(t => tracks.push(t));
     mixedStream = new MediaStream(tracks);
-    if (mixedAudio.length) await startHdmiAudioMonitor(new MediaStream(mixedAudio));
 
     const { recorder, mimeType } = createRecorder(mixedStream, getBitrate());
     mediaRecorder = recorder;
@@ -632,6 +639,7 @@ async function startRecording() {
     setStatus('recording', 'Recording');
     $('recordBtn').innerHTML = '<span class="btn-record-dot"></span> Stop Recording';
     $('recordBtn').classList.add('recording');
+    previewContainer?.classList.add('is-recording');
     composeCanvas.classList.add('hidden');
     previewIdle?.classList.add('hidden');
     if (hdmiMain) $('recordMirrorNote')?.classList.add('hidden');
@@ -644,6 +652,14 @@ async function startRecording() {
   }
 }
 
+function showLiveCaption(text) {
+  const el = $('liveCaption');
+  if (!el) return;
+  const t = (text || '').trim();
+  el.textContent = t;
+  el.classList.toggle('hidden', !t);
+}
+
 function startCaptions() {
   captionsActive = true;
   captionCues = [];
@@ -651,12 +667,15 @@ function startCaptions() {
   recognition.continuous = true;
   recognition.interimResults = true;
   recognition.onresult = e => {
+    const said = e.results[e.results.length - 1][0].transcript;
     for (let i = e.resultIndex; i < e.results.length; i++) {
       if (e.results[i].isFinal) {
-        captionCues.push({ start: 0, end: 0, text: e.results[i][0].transcript.trim() });
+        const at = Math.max(0, Date.now() - startTime - totalPaused);
+        captionCues.push({ start: at, end: at, text: e.results[i][0].transcript.trim() });
       }
     }
-    compositor.setCaption(e.results[e.results.length - 1][0].transcript);
+    compositor.setCaption(said);
+    showLiveCaption(said);
   };
   recognition.onend = () => { if (captionsActive) try { recognition.start(); } catch (_) {} };
   try { recognition.start(); } catch (_) {}
@@ -679,7 +698,9 @@ function cleanupAfterRecord() {
   captionsActive = false;
   try { recognition?.stop(); } catch (_) {}
   compositor.stop();
+  stopAudioMix();
   compositor.setCaption('');
+  showLiveCaption('');
   compositor.setCaptureAsMain(false);
   composeCanvas.classList.add('hidden');
   $('recordMirrorNote')?.classList.add('hidden');
@@ -693,6 +714,7 @@ function cleanupAfterRecord() {
   setStatus('ready', 'Ready');
   $('recordBtn').innerHTML = '<span class="btn-record-dot"></span> Start Recording';
   $('recordBtn').classList.remove('recording');
+  previewContainer?.classList.remove('is-recording');
   $('pauseBtn').disabled = true;
   if (webcamFeed.stream) webcamFeed.show();
   if (captureFeed.stream) {
@@ -700,6 +722,7 @@ function cleanupAfterRecord() {
     if (captureCardPip.dataset.hear === '1') captureCardPip.muted = false;
     refreshCapturePreviewLayout();
   }
+  if (hdmiAudioStream) startHdmiAudioMonitor(hdmiAudioStream);
 }
 
 $('exportCancel')?.addEventListener('click', () => {
@@ -723,7 +746,7 @@ $('exportConfirm')?.addEventListener('click', () => {
   if ($('exportVtt')?.checked) downloadText(`${base}-captions.md`, buildCaptionsMd(cues, meta));
   if ($('exportPdf')?.checked) {
     try {
-      downloadActionPlanPdf({ cues, meta, jsPDF: window.jspdf?.jsPDF });
+      downloadActionPlanPdf({ cues, meta });
     } catch (err) {
       alert('Action plan PDF could not be built: ' + (err.message || err) + '. Meeting notes markdown still downloads if selected.');
     }
@@ -739,6 +762,7 @@ $('captureCardOptions').classList.add('hidden');
 applyWebcamPos('bottom-right');
 applyWebcamSize(parseInt($('camSize')?.value || '240', 10));
 applyCaptureSize(parseInt($('capSize')?.value || '560', 10));
+setHdmiVolume(parseInt($('hdmiVol')?.value || '35', 10) / 100);
 applyWidescreen($('widescreenToggle')?.checked !== false);
 setStatus('ready', 'Ready');
 console.log('Screen2D', BUILD);

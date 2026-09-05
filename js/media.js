@@ -114,6 +114,17 @@ export function mimeToExtension(mimeType) {
 let audioCtx = null;
 let mixGraph = [];
 let hdmiMonitorNode = null;
+let hdmiGainNode = null;
+let hdmiGainValue = 0.35;
+
+export function setHdmiVolume(v) {
+  hdmiGainValue = Math.max(0, Math.min(1, Number(v)));
+  if (hdmiGainNode) hdmiGainNode.gain.value = hdmiGainValue;
+}
+
+export function getHdmiVolume() {
+  return hdmiGainValue;
+}
 
 export async function resumeAudioContexts() {
   if (!audioCtx) {
@@ -124,7 +135,7 @@ export async function resumeAudioContexts() {
 }
 
 /** Mix originals (not clones) so Chrome actually emits samples into MediaRecorder. */
-export async function mixAudioTracks(tracks, { hear = false } = {}) {
+export async function mixAudioTracks(tracks, { hear = false, hdmiTracks = [] } = {}) {
   await resumeAudioContexts();
   mixGraph.forEach(n => { try { n.disconnect(); } catch (_) {} });
   mixGraph = [];
@@ -133,24 +144,32 @@ export async function mixAudioTracks(tracks, { hear = false } = {}) {
   if (!live.length) return [];
   if (!audioCtx) return live;
   const dest = audioCtx.createMediaStreamDestination();
+  hdmiGainNode = audioCtx.createGain();
+  hdmiGainNode.gain.value = hdmiGainValue;
+  hdmiGainNode.connect(dest);
+  mixGraph.push(hdmiGainNode, dest);
+  const hdmiSet = new Set(hdmiTracks);
   live.forEach(t => {
     try {
       const src = audioCtx.createMediaStreamSource(new MediaStream([t]));
-      src.connect(dest);
+      if (hdmiSet.has(t)) src.connect(hdmiGainNode);
+      else src.connect(dest);
       mixGraph.push(src);
     } catch (_) {}
   });
-  mixGraph.push(dest);
+  // Monitor game/HDMI only — never the mic (OBS/Zoom default: no speaker echo).
   if (hear) {
-    try {
-      const tap = audioCtx.createMediaStreamSource(dest.stream);
-      tap.connect(audioCtx.destination);
-      mixGraph.push(tap);
-    } catch (_) {}
+    try { hdmiGainNode.connect(audioCtx.destination); } catch (_) {}
   }
   const mixed = dest.stream.getAudioTracks();
   mixed.forEach(t => { t.enabled = true; });
   return mixed.length ? mixed : live;
+}
+
+export function stopAudioMix() {
+  mixGraph.forEach(n => { try { n.disconnect(); } catch (_) {} });
+  mixGraph = [];
+  hdmiGainNode = null;
 }
 
 export async function openMicStream(deviceId) {
@@ -213,7 +232,10 @@ export async function startHdmiAudioMonitor(stream) {
   if (!audioCtx) return false;
   try {
     hdmiMonitorNode = audioCtx.createMediaStreamSource(new MediaStream(tracks));
-    hdmiMonitorNode.connect(audioCtx.destination);
+    hdmiGainNode = audioCtx.createGain();
+    hdmiGainNode.gain.value = hdmiGainValue;
+    hdmiMonitorNode.connect(hdmiGainNode);
+    hdmiGainNode.connect(audioCtx.destination);
     return true;
   } catch (_) {
     return false;
