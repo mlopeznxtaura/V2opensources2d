@@ -20,7 +20,7 @@ import {
   requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
 } from './media.js';
 
-const BUILD = '260905-aud';
+const BUILD = '260905-aud2';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -242,22 +242,33 @@ async function startCapture() {
   const label = selectedLabel($('captureCardSelect'));
   const clash = conflictingVideoFeedId('capture', id);
   if (clash) assertDistinctVideoFeeds(clash.id, id, { camLabel: clash.label, capLabel: label });
-  await captureFeed.open(id, label);
   stopHdmiAudioMonitor();
-  if (hdmiAudioStream) { hdmiAudioStream.getTracks().forEach(t => t.stop()); hdmiAudioStream = null; }
+  hdmiAudioStream = null;
+
   const audioStatus = $('captureCardAudioStatus');
+  let hdmiAudioId = false;
   if ($('captureCardAudio')?.checked) {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    hdmiAudioId = findHdmiAudioDevice(id, devices)?.deviceId || true;
+  }
+  await captureFeed.open(id, label, { audio: hdmiAudioId });
+
+  const liveHdmi = (captureFeed.stream?.getAudioTracks() || []).filter(t => t.readyState === 'live');
+  if (liveHdmi.length) {
+    hdmiAudioStream = new MediaStream(liveHdmi);
+    const heard = await startHdmiAudioMonitor(hdmiAudioStream);
+    const name = liveHdmi[0].label || 'HDMI audio';
+    if (audioStatus) {
+      audioStatus.textContent = heard
+        ? `HDMI audio live: ${name}`
+        : `HDMI audio captured: ${name} — click the page if you still can’t hear preview`;
+    }
+  } else if ($('captureCardAudio')?.checked) {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const mate = findHdmiAudioDevice(id, devices);
     if (mate?.deviceId) {
       try {
         hdmiAudioStream = await openHdmiAudioStream(mate.deviceId);
-        hdmiAudioStream.getAudioTracks().forEach(t => captureFeed.stream.addTrack(t));
-        captureCardPip.dataset.hear = '1';
-        captureCardPip.srcObject = captureFeed.stream;
-        captureCardPip.muted = false;
-        await playVideo(captureCardPip);
-        captureCardPip.muted = false;
         const heard = await startHdmiAudioMonitor(hdmiAudioStream);
         if (audioStatus) {
           audioStatus.textContent = heard
@@ -272,7 +283,6 @@ async function startCapture() {
     }
   } else if (audioStatus) {
     audioStatus.textContent = '';
-    captureCardPip.muted = true;
   }
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
   $('captureCardSelect').value = id;
@@ -563,11 +573,13 @@ async function startRecording() {
     compositor.start();
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+    stopHdmiAudioMonitor();
     const canvasStream = composeCanvas.captureStream(canvasCaptureFps());
     const tracks = [...canvasStream.getVideoTracks()];
-    (await mixAudioTracks(audioTracks)).forEach(t => tracks.push(t));
+    const mixedAudio = await mixAudioTracks(audioTracks);
+    mixedAudio.forEach(t => tracks.push(t));
     mixedStream = new MediaStream(tracks);
-    await resumeAudioContexts();
+    if (mixedAudio.length) await startHdmiAudioMonitor(new MediaStream(mixedAudio));
 
     const { recorder, mimeType } = createRecorder(mixedStream, getBitrate());
     mediaRecorder = recorder;
@@ -687,7 +699,7 @@ document.addEventListener('click', () => { resumeAudioContexts(); if (hdmiAudioS
 $('webcamOptions').style.display = 'none';
 $('captureCardOptions').classList.add('hidden');
 applyWebcamPos('bottom-right');
-applyWebcamSize(parseInt($('camSize')?.value || '320', 10));
+applyWebcamSize(parseInt($('camSize')?.value || '240', 10));
 applyCaptureSize(parseInt($('capSize')?.value || '560', 10));
 setStatus('ready', 'Ready');
 console.log('Screen2D', BUILD);

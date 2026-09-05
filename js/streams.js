@@ -27,25 +27,41 @@ export class VideoFeed {
     this.videoEl.srcObject = null;
   }
 
-  async open(deviceId, deviceLabel = '') {
+  async open(deviceId, deviceLabel = '', { audio = false } = {}) {
     if (!deviceId) throw new Error('No device selected.');
-    if (this.deviceId === deviceId && this.stream) return this.stream;
+    const already = this.deviceId === deviceId && this.stream;
+    const haveAudio = !!this.stream?.getAudioTracks().some(t => t.readyState === 'live');
+    if (already && (!audio || haveAudio)) return this.stream;
 
     this.stop();
 
+    const rawAudio = (id) => {
+      const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+      if (id === true) return base;
+      return { deviceId: { exact: id }, ...base };
+    };
+    const audioConstraint = audio ? rawAudio(audio) : false;
     const pass = isPassthroughCamera(deviceLabel);
-    // Match 260820-voice open order (1080, then unsized). Never fall back to { video: true }.
-    const constraints = pass
+    const videoAttempts = pass
       ? [
-          { video: { deviceId: { exact: deviceId } }, audio: false },
-          { video: { deviceId: { ideal: deviceId } }, audio: false },
+          { deviceId: { exact: deviceId } },
+          { deviceId: { ideal: deviceId } },
         ]
       : [
-          { video: { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false },
-          { video: { deviceId: { exact: deviceId } }, audio: false },
-          { video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
-          { video: { deviceId: { ideal: deviceId } }, audio: false },
+          { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          { deviceId: { exact: deviceId } },
+          { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          { deviceId: { ideal: deviceId } },
         ];
+
+    const constraints = [];
+    if (audioConstraint) {
+      videoAttempts.forEach(video => constraints.push({ video, audio: audioConstraint }));
+      if (audio !== true) {
+        videoAttempts.forEach(video => constraints.push({ video, audio: rawAudio(true) }));
+      }
+    }
+    videoAttempts.forEach(video => constraints.push({ video, audio: false }));
 
     let lastErr;
     for (const c of constraints) {
@@ -54,7 +70,8 @@ export class VideoFeed {
         assertOpenedDevice(stream, deviceId);
         this.stream = stream;
         this.deviceId = deviceId;
-        this.videoEl.srcObject = stream;
+        // Preview plays video only. Audio is monitored separately so Chrome does not mute the tracks.
+        this.videoEl.srcObject = new MediaStream(stream.getVideoTracks());
         await playVideo(this.videoEl);
         return stream;
       } catch (err) {

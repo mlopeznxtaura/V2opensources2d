@@ -65,7 +65,12 @@ export function createCompositor({ screenVideo, captureCardVideo, webcamVideo, c
     ctx.fillRect(0, 0, vw, vh);
 
     if (captureAsMain && capReady) {
-      ctx.drawImage(captureCardVideo, 0, 0, vw, vh);
+      const srcW = captureCardVideo.videoWidth;
+      const srcH = captureCardVideo.videoHeight;
+      const scale = Math.min(vw / srcW, vh / srcH) * 0.92;
+      const dw = srcW * scale;
+      const dh = srcH * scale;
+      ctx.drawImage(captureCardVideo, (vw - dw) / 2, (vh - dh) / 2, dw, dh);
     } else if (screenVideo.readyState >= 2 && screenVideo.videoWidth > 0) {
       ctx.drawImage(screenVideo, 0, 0, vw, vh);
     }
