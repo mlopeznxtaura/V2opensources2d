@@ -56,9 +56,18 @@ export async function waitForVideoFrame(video, timeoutMs = 15000) {
   ]);
 }
 
-export function getDisplayMediaOptions(_sourceValue, includeSystemAudio) {
+const DISPLAY_SURFACE = { screen: 'monitor', window: 'window', tab: 'browser' };
+
+export function getDisplayMediaOptions(sourceValue, includeSystemAudio) {
   if (isSafari || isIOS) return { video: true, audio: !!includeSystemAudio };
-  return { video: { cursor: 'always' }, audio: !!includeSystemAudio };
+  const displaySurface = DISPLAY_SURFACE[sourceValue] || 'monitor';
+  return {
+    video: { cursor: 'always', displaySurface },
+    audio: !!includeSystemAudio,
+    // Never offer this recorder tab — capturing it composites into itself and melts.
+    preferCurrentTab: false,
+    selfBrowserSurface: 'exclude',
+  };
 }
 
 export function supportsMediaRecorderPause() {
@@ -67,9 +76,16 @@ export function supportsMediaRecorderPause() {
 }
 
 function pickMimeType() {
+  // Skip bare video/mp4: Chrome often muxes Opus into MP4, which Windows players play mute.
   const types = (isSafari || isIOS)
     ? ['video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']
-    : ['video/mp4;codecs=h264,aac', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+    : [
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/mp4;codecs=h264,aac',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm',
+    ];
   for (const type of types) {
     try { if (MediaRecorder.isTypeSupported(type)) return type; } catch (_) {}
   }
@@ -109,18 +125,56 @@ export async function mixAudioTracks(tracks) {
   await resumeAudioContexts();
   const live = tracks.filter(t => t && t.readyState === 'live');
   if (!live.length) return [];
-  if (live.length === 1) return live;
-  if (!audioCtx) return live;
+  if (live.length === 1) return [live[0].clone()];
+  if (!audioCtx) return live.map(t => t.clone());
   const dest = audioCtx.createMediaStreamDestination();
   live.forEach(t => {
-    audioCtx.createMediaStreamSource(new MediaStream([t])).connect(dest);
+    try {
+      audioCtx.createMediaStreamSource(new MediaStream([t.clone()])).connect(dest);
+    } catch (_) {}
   });
   return dest.stream.getAudioTracks();
 }
 
 export async function openMicStream(deviceId) {
-  const audio = deviceId ? { deviceId: { ideal: deviceId } } : true;
-  return navigator.mediaDevices.getUserMedia({ audio, video: false });
+  const processing = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  const attempts = deviceId
+    ? [
+        { audio: { deviceId: { exact: deviceId }, ...processing }, video: false },
+        { audio: { deviceId: { ideal: deviceId }, ...processing }, video: false },
+      ]
+    : [{ audio: processing, video: false }];
+  let lastErr;
+  for (const c of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(c);
+    } catch (err) {
+      lastErr = err;
+      if (err.name === 'NotAllowedError' || err.name === 'SecurityError') throw err;
+    }
+  }
+  throw lastErr || new Error('Microphone unavailable');
+}
+
+/** Unlocks device labels in Chrome. Stops the temp track immediately — does not keep a camera open. */
+export async function requestVideoPermission() {
+  try {
+    const tmp = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    tmp.getTracks().forEach(t => t.stop());
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+export async function requestAudioPermission() {
+  try {
+    const tmp = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    tmp.getTracks().forEach(t => t.stop());
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 /** Hidden in-DOM video for screen decode (must be attached for reliable frames). */

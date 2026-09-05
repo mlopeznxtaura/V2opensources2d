@@ -579,6 +579,24 @@ html, body {
 .capture-pip.pos-top-left     { top: 16px; left: 16px; }
 .capture-pip.hidden { display: none; }
 
+/* HDMI/capture fills preview until screen recording starts (app1 behavior) */
+.capture-pip.capture-full-preview {
+  inset: 0;
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 0;
+  border: none;
+  object-fit: contain;
+  cursor: default;
+  z-index: 11;
+}
+
 .webcam-pip {
   position: absolute;
   border-radius: 50%;
@@ -612,6 +630,25 @@ html, body {
 .idle-icon { opacity: 0.3; }
 .preview-idle p { font-size: 14px; line-height: 1.6; }
 .preview-idle strong { color: var(--text2); }
+
+.record-mirror-note {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px;
+  text-align: center;
+  pointer-events: none;
+  color: var(--text3);
+  background: #080910;
+}
+.record-mirror-note.hidden { display: none; }
+.record-mirror-note p { font-size: 14px; line-height: 1.6; max-width: 36rem; }
+.record-mirror-note strong { color: var(--text2); }
 
 /* ============ RECORDINGS ============ */
 .recordings-section {

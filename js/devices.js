@@ -26,6 +26,23 @@ export function requireSelectedId(selectEl) {
   return id;
 }
 
+export function assertDistinctVideoFeeds(camId, capId) {
+  if (camId && capId && camId === capId) {
+    throw new Error('Webcam and capture card must be different devices.');
+  }
+}
+
+export function formatVideoOpenError(err, label = 'That camera') {
+  const msg = err?.message || '';
+  if (err?.name === 'NotReadableError' || /in use|busy|allocate/i.test(msg)) {
+    return new Error(`${label} is in use. Close OBS, Windows Camera, or the other feed in this app, then try again.`);
+  }
+  if (err?.name === 'NotFoundError') {
+    return new Error(`${label} was not found. Unplug/replug it or pick another device.`);
+  }
+  return err instanceof Error ? err : new Error(msg || 'Could not open that device.');
+}
+
 /** After getUserMedia, confirm we got the device the user asked for. */
 export function assertOpenedDevice(stream, expectedDeviceId) {
   const track = stream?.getVideoTracks?.()?.[0];
@@ -36,4 +53,36 @@ export function assertOpenedDevice(stream, expectedDeviceId) {
     throw new Error(`Browser opened a different device (${track.label || 'unknown'}). Try again or close other apps using the camera.`);
   }
   return stream;
+}
+
+export function isHdmiCaptureAudioLabel(label) {
+  const l = (label || '').toLowerCase();
+  return /digital audio|hdmi|capture|line in|interface|ccd10|nearstream|gc3101/.test(l)
+    && !/webcam|microphone array|headset|usb camera|link camera/.test(l);
+}
+
+/** Pair a camera/capture-card video device to its sibling microphone (groupId, USB id, or name). */
+export function findPairedAudioDevice(videoDeviceId, devices) {
+  const video = devices.find(d => d.deviceId === videoDeviceId && d.kind === 'videoinput');
+  if (!video) return null;
+  const audioInputs = devices.filter(d => d.kind === 'audioinput' && d.deviceId);
+  if (!audioInputs.length) return null;
+
+  if (video.groupId) {
+    const mate = audioInputs.find(d => d.groupId === video.groupId);
+    if (mate) return mate;
+  }
+
+  const usbMatch = video.label.match(/\(([0-9a-f]{4}:[0-9a-f]{4})\)/i);
+  if (usbMatch) {
+    const mate = audioInputs.find(a => a.label.toLowerCase().includes(usbMatch[1].toLowerCase()));
+    if (mate) return mate;
+  }
+
+  const stem = video.label.split('(')[0].trim().toLowerCase();
+  if (stem.length > 2) {
+    const mate = audioInputs.find(a => a.label.toLowerCase().includes(stem));
+    if (mate) return mate;
+  }
+  return null;
 }

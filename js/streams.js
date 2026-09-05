@@ -1,7 +1,7 @@
 /* Video feed — one DOM <video>, one stream, exact deviceId only. */
 
 import { prepareVideoElement, playVideo } from './media.js';
-import { assertOpenedDevice, isPassthroughCamera, videoTrackLabel } from './devices.js';
+import { assertOpenedDevice, formatVideoOpenError, isPassthroughCamera, videoTrackLabel } from './devices.js';
 
 export class VideoFeed {
   /** @param {HTMLVideoElement} videoEl must be in the document */
@@ -34,15 +34,17 @@ export class VideoFeed {
     this.stop();
 
     const pass = isPassthroughCamera(deviceLabel);
+    // Match 260820-voice open order (1080, then unsized). Never fall back to { video: true }.
     const constraints = pass
       ? [
           { video: { deviceId: { exact: deviceId } }, audio: false },
           { video: { deviceId: { ideal: deviceId } }, audio: false },
         ]
       : [
+          { video: { deviceId: { exact: deviceId }, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } }, audio: false },
+          { video: { deviceId: { exact: deviceId } }, audio: false },
           { video: { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
           { video: { deviceId: { ideal: deviceId } }, audio: false },
-          { video: { deviceId: { exact: deviceId } }, audio: false },
         ];
 
     let lastErr;
@@ -60,7 +62,7 @@ export class VideoFeed {
         if (err.name === 'NotAllowedError' || err.name === 'SecurityError') throw err;
       }
     }
-    throw lastErr || new Error('Could not open that device. Close other apps using it.');
+    throw formatVideoOpenError(lastErr, deviceLabel || 'That camera');
   }
 
   show() { this.videoEl.classList.remove('hidden'); }

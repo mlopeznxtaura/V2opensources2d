@@ -11,15 +11,16 @@ import {
   buildTranscript, mergeExportCues,
 } from './plan-export.js';
 import { resetSession } from './session.js';
-import { requireSelectedId, isPassthroughCamera, trackDeviceId } from './devices.js';
+import { requireSelectedId, isPassthroughCamera, trackDeviceId, findPairedAudioDevice, isHdmiCaptureAudioLabel } from './devices.js';
 import { VideoFeed, refreshDeviceLists, selectedLabel } from './streams.js';
 import {
   isIOS, isSafari, supportsMediaRecorderPause, playVideo, waitForVideoFrame,
   mixAudioTracks, getDisplayMediaOptions, createRecorder, canvasCaptureFps,
   mimeToExtension, openMicStream, resumeAudioContexts, mountHiddenVideo,
+  requestVideoPermission, requestAudioPermission,
 } from './media.js';
 
-const BUILD = '260617-v2r3';
+const BUILD = '260905-mic';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -78,8 +79,10 @@ function getBitrate() {
   return 8_000_000;
 }
 
-// ── Boot: list devices without opening any camera ──
+// ── Boot: permission first so Chrome fills real device labels (260820-voice).
 async function boot() {
+  await requestVideoPermission();
+  await requestAudioPermission();
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
   const savedCam = localStorage.getItem('v2.webcam');
   const savedCap = localStorage.getItem('v2.capture');
@@ -143,11 +146,35 @@ async function startWebcam() {
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
   $('camSelect').value = id;
   localStorage.setItem('v2.webcam', id);
+  await suggestWebcamMic(id);
   webcamFeed.show();
   previewIdle?.classList.add('hidden');
   syncPassthroughUi();
   updateWebcamStatus();
   if (isVirtualBgOn()) await startVirtualBg();
+}
+
+async function suggestWebcamMic(videoDeviceId) {
+  const sel = $('micSelect');
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const mate = findPairedAudioDevice(videoDeviceId, devices);
+  const status = $('micDeviceStatus');
+  if (mate?.deviceId && !isHdmiCaptureAudioLabel(mate.label)) {
+    if (sel && !sel.value) sel.value = mate.deviceId;
+    if (status) status.textContent = `Voice mic: ${mate.label}`;
+  } else if (status) {
+    status.textContent = 'No microphone on this webcam — pick one in Audio, or this recording will have no voice.';
+  }
+}
+
+async function resolveVoiceMicId() {
+  const picked = $('micSelect')?.value?.trim();
+  if (picked) return picked;
+  if (!webcamFeed.deviceId) return null;
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  const mate = findPairedAudioDevice(webcamFeed.deviceId, devices);
+  if (mate?.deviceId && !isHdmiCaptureAudioLabel(mate.label)) return mate.deviceId;
+  return null;
 }
 
 function stopWebcam() {
@@ -310,8 +337,9 @@ async function startRecording() {
     recordedChunks = [];
     const audioTracks = [];
 
+    const source = document.querySelector('input[name="source"]:checked')?.value || 'screen';
     screenStream = await navigator.mediaDevices.getDisplayMedia(
-      getDisplayMediaOptions('screen', $('systemAudio')?.checked),
+      getDisplayMediaOptions(source, $('systemAudio')?.checked),
     );
     screenStream.getAudioTracks().forEach(t => audioTracks.push(t));
 
@@ -336,7 +364,15 @@ async function startRecording() {
     }
 
     if ($('micAudio')?.checked) {
-      micStream = await openMicStream($('micSelect')?.value || null);
+      const micId = await resolveVoiceMicId();
+      micStream = await openMicStream(micId);
+      const liveMic = micStream.getAudioTracks()[0];
+      const micStatus = $('micDeviceStatus');
+      if (micStatus) {
+        micStatus.textContent = liveMic?.label
+          ? `Recording voice: ${liveMic.label}`
+          : 'Microphone opened (unnamed)';
+      }
       micStream.getAudioTracks().forEach(t => audioTracks.push(t));
     }
 
@@ -369,8 +405,10 @@ async function startRecording() {
     setStatus('recording', 'Recording');
     $('recordBtn').innerHTML = '<span class="btn-record-dot"></span> Stop Recording';
     $('recordBtn').classList.add('recording');
-    composeCanvas.classList.remove('hidden');
+    // Keep compose canvas hidden so screen/window capture cannot recapture it (app1 last-good).
+    composeCanvas.classList.add('hidden');
     previewIdle?.classList.add('hidden');
+    $('recordMirrorNote')?.classList.remove('hidden');
     $('pauseBtn').disabled = !supportsMediaRecorderPause();
     screenStream.getVideoTracks()[0].onended = stopRecording;
   } catch (e) {
@@ -416,6 +454,7 @@ function cleanupAfterRecord() {
   compositor.stop();
   compositor.setCaption('');
   composeCanvas.classList.add('hidden');
+  $('recordMirrorNote')?.classList.add('hidden');
   if (screenStream) { screenStream.getTracks().forEach(t => t.stop()); screenStream = null; }
   if (mixedStream) { mixedStream.getTracks().forEach(t => t.stop()); mixedStream = null; }
   if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
