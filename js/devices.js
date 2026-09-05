@@ -26,10 +26,11 @@ export function requireSelectedId(selectEl) {
   return id;
 }
 
-export function assertDistinctVideoFeeds(camId, capId) {
-  if (camId && capId && camId === capId) {
-    throw new Error('Webcam and capture card must be different devices.');
-  }
+export function assertDistinctVideoFeeds(camId, capId, { camLabel = '', capLabel = '' } = {}) {
+  if (!camId || !capId || camId !== capId) return;
+  const cam = camLabel || 'webcam';
+  const cap = capLabel || 'capture card';
+  throw new Error(`"${cam}" and "${cap}" are the same video device. Pick a different one in Feed 1 or Feed 2.`);
 }
 
 export function formatVideoOpenError(err, label = 'That camera') {

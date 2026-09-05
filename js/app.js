@@ -20,7 +20,7 @@ import {
   requestAudioPermission,
 } from './media.js';
 
-const BUILD = '260905-cap';
+const BUILD = '260905-feeds';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -72,15 +72,26 @@ function isRecording() {
   return mediaRecorder && mediaRecorder.state !== 'inactive';
 }
 
-function otherVideoFeedId(opening) {
+/** Only block when the other video feed is live, or both toggles are on with the same pick. */
+function conflictingVideoFeedId(opening, openingId) {
   if (opening === 'webcam') {
-    if (captureFeed.deviceId) return captureFeed.deviceId;
-    if ($('captureCardToggle').checked) return $('captureCardSelect')?.value?.trim() || '';
-    return '';
+    if (captureFeed.deviceId) return { id: captureFeed.deviceId, label: selectedLabel($('captureCardSelect')) };
+    if ($('captureCardToggle').checked) {
+      const pending = $('captureCardSelect')?.value?.trim();
+      if (pending && pending === openingId) {
+        return { id: pending, label: selectedLabel($('captureCardSelect')) };
+      }
+    }
+    return null;
   }
-  if (webcamFeed.deviceId) return webcamFeed.deviceId;
-  if ($('webcamToggle').checked) return $('camSelect')?.value?.trim() || '';
-  return '';
+  if (webcamFeed.deviceId) return { id: webcamFeed.deviceId, label: selectedLabel($('camSelect')) };
+  if ($('webcamToggle').checked) {
+    const pending = $('camSelect')?.value?.trim();
+    if (pending && pending === openingId) {
+      return { id: pending, label: selectedLabel($('camSelect')) };
+    }
+  }
+  return null;
 }
 
 function getCapturePos() {
@@ -155,8 +166,9 @@ function stopVirtualBg() { stopSegmentationLoop(); }
 
 async function startWebcam() {
   const id = requireSelectedId($('camSelect'));
-  assertDistinctVideoFeeds(id, otherVideoFeedId('webcam'));
   const label = selectedLabel($('camSelect'));
+  const clash = conflictingVideoFeedId('webcam', id);
+  if (clash) assertDistinctVideoFeeds(id, clash.id, { camLabel: label, capLabel: clash.label });
   await webcamFeed.open(id, label);
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'));
   $('camSelect').value = id;
@@ -201,9 +213,11 @@ function stopWebcam() {
 }
 
 async function startCapture() {
+  if (!$('webcamToggle').checked) stopWebcam();
   const id = requireSelectedId($('captureCardSelect'));
-  assertDistinctVideoFeeds(otherVideoFeedId('capture'), id);
   const label = selectedLabel($('captureCardSelect'));
+  const clash = conflictingVideoFeedId('capture', id);
+  if (clash) assertDistinctVideoFeeds(clash.id, id, { camLabel: clash.label, capLabel: label });
   await captureFeed.open(id, label);
   if ($('captureCardAudio')?.checked) {
     const devices = await navigator.mediaDevices.enumerateDevices();
@@ -382,6 +396,7 @@ $('pauseBtn').addEventListener('click', () => {
 
 async function startRecording() {
   try {
+    if (!$('webcamToggle').checked) stopWebcam();
     recordedChunks = [];
     const audioTracks = [];
 
