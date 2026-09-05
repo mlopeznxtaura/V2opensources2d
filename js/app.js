@@ -20,7 +20,7 @@ import {
   requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
 } from './media.js';
 
-const BUILD = '260905-snd';
+const BUILD = '260905-fix';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -41,6 +41,7 @@ const compositor = createCompositor({
 });
 
 let hdmiAudioStream = null;
+let screenStream = null;
 let micStream = null;
 let mixedStream = null;
 let mediaRecorder = null;
