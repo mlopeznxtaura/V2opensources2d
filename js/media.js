@@ -113,7 +113,7 @@ export function mimeToExtension(mimeType) {
 
 let audioCtx = null;
 let mixGraph = [];
-let hdmiMonitorEl = null;
+let hdmiMonitorNode = null;
 
 export async function resumeAudioContexts() {
   if (!audioCtx) {
@@ -124,8 +124,9 @@ export async function resumeAudioContexts() {
 }
 
 /** Mix originals (not clones) so Chrome actually emits samples into MediaRecorder. */
-export async function mixAudioTracks(tracks) {
+export async function mixAudioTracks(tracks, { hear = false } = {}) {
   await resumeAudioContexts();
+  mixGraph.forEach(n => { try { n.disconnect(); } catch (_) {} });
   mixGraph = [];
   const live = tracks.filter(t => t && t.readyState === 'live');
   live.forEach(t => { t.enabled = true; });
@@ -140,6 +141,13 @@ export async function mixAudioTracks(tracks) {
     } catch (_) {}
   });
   mixGraph.push(dest);
+  if (hear) {
+    try {
+      const tap = audioCtx.createMediaStreamSource(dest.stream);
+      tap.connect(audioCtx.destination);
+      mixGraph.push(tap);
+    } catch (_) {}
+  }
   const mixed = dest.stream.getAudioTracks();
   mixed.forEach(t => { t.enabled = true; });
   return mixed.length ? mixed : live;
@@ -166,7 +174,12 @@ export async function openMicStream(deviceId) {
 }
 
 export async function openHdmiAudioStream(deviceId) {
-  const raw = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  const raw = {
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+    voiceIsolation: false,
+  };
   const attempts = deviceId
     ? [
         { audio: { deviceId: { exact: deviceId }, ...raw }, video: false },
@@ -177,6 +190,11 @@ export async function openHdmiAudioStream(deviceId) {
   for (const c of attempts) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia(c);
+      const label = stream.getAudioTracks()[0]?.label || '';
+      if (/usb camera|link camera|webcam|microphone array|headset/i.test(label)) {
+        stream.getTracks().forEach(t => t.stop());
+        throw new Error('Browser opened the webcam mic instead of HDMI audio.');
+      }
       stream.getAudioTracks().forEach(t => { t.enabled = true; });
       return stream;
     } catch (err) {
@@ -188,20 +206,14 @@ export async function openHdmiAudioStream(deviceId) {
 }
 
 export async function startHdmiAudioMonitor(stream) {
-  if (!stream?.getAudioTracks().length) return false;
-  if (!hdmiMonitorEl) {
-    hdmiMonitorEl = document.createElement('audio');
-    hdmiMonitorEl.id = 'hdmiAudioMonitor';
-    hdmiMonitorEl.autoplay = true;
-    hdmiMonitorEl.playsInline = true;
-    hdmiMonitorEl.style.cssText = 'position:absolute;width:1px;height:1px;opacity:0;pointer-events:none';
-    document.body.appendChild(hdmiMonitorEl);
-  }
-  hdmiMonitorEl.srcObject = stream;
-  hdmiMonitorEl.muted = false;
-  hdmiMonitorEl.volume = 1;
+  stopHdmiAudioMonitor();
+  const tracks = stream?.getAudioTracks?.().filter(t => t.readyState === 'live') || [];
+  if (!tracks.length) return false;
+  await resumeAudioContexts();
+  if (!audioCtx) return false;
   try {
-    await hdmiMonitorEl.play();
+    hdmiMonitorNode = audioCtx.createMediaStreamSource(new MediaStream(tracks));
+    hdmiMonitorNode.connect(audioCtx.destination);
     return true;
   } catch (_) {
     return false;
@@ -209,9 +221,10 @@ export async function startHdmiAudioMonitor(stream) {
 }
 
 export function stopHdmiAudioMonitor() {
-  if (!hdmiMonitorEl) return;
-  hdmiMonitorEl.pause();
-  hdmiMonitorEl.srcObject = null;
+  if (hdmiMonitorNode) {
+    try { hdmiMonitorNode.disconnect(); } catch (_) {}
+    hdmiMonitorNode = null;
+  }
 }
 
 /** Unlocks device labels in Chrome. Stops the temp track immediately — does not keep a camera open. */

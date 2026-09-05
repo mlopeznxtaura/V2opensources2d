@@ -20,7 +20,7 @@ import {
   requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
 } from './media.js';
 
-const BUILD = '260905-ws';
+const BUILD = '260905-snd';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -252,50 +252,46 @@ async function startCapture() {
   const clash = conflictingVideoFeedId('capture', id);
   if (clash) assertDistinctVideoFeeds(clash.id, id, { camLabel: clash.label, capLabel: label });
   stopHdmiAudioMonitor();
-  hdmiAudioStream = null;
+  if (hdmiAudioStream) { hdmiAudioStream.getTracks().forEach(t => t.stop()); hdmiAudioStream = null; }
+
+  await captureFeed.open(id, label);
+  captureCardPip.muted = true;
 
   const audioStatus = $('captureCardAudioStatus');
-  let hdmiAudioId = false;
   if ($('captureCardAudio')?.checked) {
-    const picked = $('hdmiAudioSelect')?.value?.trim();
-    if (picked) hdmiAudioId = picked;
-    else {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      hdmiAudioId = findHdmiAudioDevice(id, devices)?.deviceId || true;
-    }
-  }
-  await captureFeed.open(id, label, { audio: hdmiAudioId });
-
-  const liveHdmi = (captureFeed.stream?.getAudioTracks() || []).filter(t => t.readyState === 'live');
-  if (liveHdmi.length) {
-    hdmiAudioStream = new MediaStream(liveHdmi);
-    captureCardPip.dataset.hear = '1';
-    captureCardPip.muted = false;
-    const name = liveHdmi[0].label || 'HDMI audio';
-    if (audioStatus) audioStatus.textContent = `HDMI audio live: ${name}`;
-  } else if ($('captureCardAudio')?.checked) {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const mate = findHdmiAudioDevice(id, devices);
+    const picked = $('hdmiAudioSelect')?.value?.trim();
+    const mate = picked
+      ? devices.find(d => d.deviceId === picked)
+      : findHdmiAudioDevice(id, devices);
     if (mate?.deviceId) {
+      if ($('hdmiAudioSelect') && [...$('hdmiAudioSelect').options].some(o => o.value === mate.deviceId)) {
+        $('hdmiAudioSelect').value = mate.deviceId;
+      }
       try {
         hdmiAudioStream = await openHdmiAudioStream(mate.deviceId);
         const heard = await startHdmiAudioMonitor(hdmiAudioStream);
+        const name = hdmiAudioStream.getAudioTracks()[0]?.label || mate.label;
         if (audioStatus) {
           audioStatus.textContent = heard
-            ? `HDMI audio live: ${mate.label}`
-            : `HDMI audio captured: ${mate.label} — click the page if you still can’t hear preview`;
+            ? `HDMI audio live (speakers): ${name}`
+            : `HDMI audio opened: ${name} — click anywhere on the page to unmute Chrome`;
         }
       } catch (err) {
-        if (audioStatus) audioStatus.textContent = `Could not open HDMI audio (${mate.label}): ${err.message}`;
+        if (audioStatus) audioStatus.textContent = `HDMI audio failed (${mate.label}): ${err.message}`;
       }
     } else if (audioStatus) {
-      audioStatus.textContent = 'No HDMI audio device found (look for NearStream / Digital Audio). Voice mic is separate.';
+      audioStatus.textContent = 'Pick NearStream / Digital Audio in the HDMI audio list. Do not pick USB CAMERA.';
     }
   } else if (audioStatus) {
     audioStatus.textContent = '';
   }
+  const keepHdmi = $('hdmiAudioSelect')?.value;
   await refreshDeviceLists($('camSelect'), $('captureCardSelect'), $('micSelect'), $('hdmiAudioSelect'));
   $('captureCardSelect').value = id;
+  if (keepHdmi && [...($('hdmiAudioSelect')?.options || [])].some(o => o.value === keepHdmi)) {
+    $('hdmiAudioSelect').value = keepHdmi;
+  }
   localStorage.setItem('v2.capture', id);
   captureFeed.show();
   refreshCapturePreviewLayout();
@@ -406,6 +402,16 @@ $('captureCardSelect').addEventListener('change', async () => {
 $('virtualBgToggle')?.addEventListener('change', () => {
   if ($('virtualBgToggle').checked) startVirtualBg();
   else stopVirtualBg();
+});
+
+document.querySelectorAll('input[name="virtualBgMode"]').forEach(r => {
+  r.addEventListener('change', () => {
+    $('virtualBgCustom')?.classList.toggle('hidden', document.querySelector('input[name="virtualBgMode"]:checked')?.value !== 'custom');
+    if ($('virtualBgToggle')?.checked) startVirtualBg();
+  });
+});
+$('virtualBgFile')?.addEventListener('change', () => {
+  if ($('virtualBgToggle')?.checked) startVirtualBg();
 });
 
 document.querySelectorAll('.position-buttons .pos-btn').forEach(btn => {
@@ -597,7 +603,7 @@ async function startRecording() {
     stopHdmiAudioMonitor();
     const canvasStream = composeCanvas.captureStream(canvasCaptureFps());
     const tracks = [...canvasStream.getVideoTracks()];
-    const mixedAudio = await mixAudioTracks(audioTracks);
+    const mixedAudio = await mixAudioTracks(audioTracks, { hear: true });
     mixedAudio.forEach(t => tracks.push(t));
     mixedStream = new MediaStream(tracks);
     if (mixedAudio.length) await startHdmiAudioMonitor(new MediaStream(mixedAudio));

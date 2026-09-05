@@ -35,12 +35,6 @@ export class VideoFeed {
 
     this.stop();
 
-    const rawAudio = (id) => {
-      const base = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
-      if (id === true) return base;
-      return { deviceId: { exact: id }, ...base };
-    };
-    const audioConstraint = audio ? rawAudio(audio) : false;
     const pass = isPassthroughCamera(deviceLabel);
     const videoAttempts = pass
       ? [
@@ -54,15 +48,7 @@ export class VideoFeed {
           { deviceId: { ideal: deviceId } },
         ];
 
-    const constraints = [];
-    if (audioConstraint) {
-      // Pairing audio:true with the capture-card video is how Windows HDMI cards expose game sound.
-      videoAttempts.forEach(video => constraints.push({ video, audio: rawAudio(true) }));
-      if (audio !== true) {
-        videoAttempts.forEach(video => constraints.push({ video, audio: audioConstraint }));
-      }
-    }
-    videoAttempts.forEach(video => constraints.push({ video, audio: false }));
+    const constraints = videoAttempts.map(video => ({ video, audio: false }));
 
     let lastErr;
     for (const c of constraints) {
@@ -72,10 +58,9 @@ export class VideoFeed {
         this.stream = stream;
         this.deviceId = deviceId;
         this.videoEl.srcObject = stream;
-        this.videoEl.dataset.hear = audio ? '1' : '';
-        this.videoEl.muted = !audio;
+        this.videoEl.muted = true;
+        this.videoEl.dataset.hear = '';
         await playVideo(this.videoEl);
-        if (audio) this.videoEl.muted = false;
         return stream;
       } catch (err) {
         lastErr = err;
