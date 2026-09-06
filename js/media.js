@@ -75,24 +75,29 @@ export function supportsMediaRecorderPause() {
     && typeof MediaRecorder.prototype.pause === 'function';
 }
 
-function pickMimeType() {
-  // Match app1 (260820-voice): Chrome canvas capture is reliable as WebM.
-  // Forcing H.264+AAC MP4 often yields files Windows cannot open.
-  const types = (isSafari || isIOS)
-    ? ['video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm']
-    : [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm',
-    ];
+function firstSupportedMime(types) {
   for (const type of types) {
     try { if (MediaRecorder.isTypeSupported(type)) return type; } catch (_) {}
   }
   return '';
 }
 
-export function createRecorder(stream, bitrate) {
-  const preferred = pickMimeType();
+/** One MP4 (H.264 + AAC) for social uploads and Twitch/Kick clips. */
+export function pickSocialMimeType() {
+  return firstSupportedMime([
+    'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+    'video/mp4;codecs=avc1.4D001E,mp4a.40.2',
+    'video/mp4;codecs=avc1.64001F,mp4a.40.2',
+    'video/mp4;codecs=h264,aac',
+    'video/mp4',
+    'video/webm;codecs=vp9,opus',
+    'video/webm;codecs=vp8,opus',
+    'video/webm',
+  ]);
+}
+
+export function createRecorder(stream, bitrate, mimeType) {
+  const preferred = mimeType || pickSocialMimeType();
   const options = {};
   if (preferred) options.mimeType = preferred;
   if (bitrate && !isIOS) options.videoBitsPerSecond = bitrate;
@@ -100,7 +105,7 @@ export function createRecorder(stream, bitrate) {
   const recorder = Object.keys(options).length
     ? new MediaRecorder(stream, options)
     : new MediaRecorder(stream);
-  return { recorder, mimeType: recorder.mimeType || preferred || 'video/webm' };
+  return { recorder, mimeType: recorder.mimeType || preferred || 'video/mp4' };
 }
 
 export function canvasCaptureFps() {

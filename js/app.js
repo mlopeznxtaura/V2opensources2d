@@ -18,10 +18,10 @@ import {
   mixAudioTracks, getDisplayMediaOptions, createRecorder, canvasCaptureFps,
   mimeToExtension, openMicStream, resumeAudioContexts, mountHiddenVideo,
   requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
-  setHdmiVolume, stopAudioMix,
+  setHdmiVolume, stopAudioMix, pickSocialMimeType,
 } from './media.js';
 
-const BUILD = '260905-pdf';
+const BUILD = '260905-social';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -619,12 +619,16 @@ async function startRecording() {
     mixedAudio.forEach(t => tracks.push(t));
     mixedStream = new MediaStream(tracks);
 
-    const { recorder, mimeType } = createRecorder(mixedStream, getBitrate());
+    const bitrate = getBitrate();
+    const socialMime = pickSocialMimeType();
+    const { recorder, mimeType } = createRecorder(mixedStream, bitrate, socialMime);
     mediaRecorder = recorder;
     recordMimeType = mimeType;
     mediaRecorder.ondataavailable = e => { if (e.data?.size) recordedChunks.push(e.data); };
     mediaRecorder.onstop = onRecordStop;
-    mediaRecorder.start(1000);
+    // No timeslice on MP4 so social sites can read duration. Chunked WebM fallback still works.
+    if ((mimeType || '').includes('mp4')) mediaRecorder.start();
+    else mediaRecorder.start(1000);
 
     startTime = Date.now();
     totalPaused = 0;
@@ -690,6 +694,12 @@ function onRecordStop() {
   pendingExport = { blob: new Blob(recordedChunks, { type: recordMimeType }), durationMs, cues: [...captionCues] };
   $('exportDuration').textContent = formatTimer(durationMs);
   $('exportPreview').textContent = buildTranscript(captionCues) || '—';
+  if (durationMs < 3000) {
+    $('exportPreview').textContent = 'Clip is under 3 seconds — LinkedIn, Instagram, Facebook, and X will reject it. Record a bit longer.';
+  } else if (!(recordMimeType || '').includes('mp4')) {
+    $('exportPreview').textContent = (buildTranscript(captionCues) || '—')
+      + ' This browser could not encode MP4. Social uploads need .mp4, not WebM.';
+  }
   $('exportModal')?.classList.remove('hidden');
   cleanupAfterRecord();
 }
@@ -736,7 +746,7 @@ $('exportConfirm')?.addEventListener('click', () => {
   const base = `recording-${Date.now()}`;
   const cues = mergeExportCues(pendingExport.cues, $('exportManualNotes')?.value, pendingExport.durationMs);
   const meta = { basename: base, durationMs: pendingExport.durationMs };
-  if ($('exportVideo')?.checked) {
+  if ($('exportVideo')?.checked && pendingExport.blob) {
     const a = document.createElement('a');
     a.href = URL.createObjectURL(pendingExport.blob);
     a.download = `${base}.${mimeToExtension(recordMimeType)}`;
