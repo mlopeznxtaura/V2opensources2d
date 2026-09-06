@@ -119,17 +119,25 @@ export function mimeToExtension(mimeType) {
 let audioCtx = null;
 let mixGraph = [];
 let hdmiMonitorNode = null;
-let hdmiGainNode = null;
-let hdmiGainValue = 0.35;
+let gameGainNode = null;
+let voiceGainNode = null;
+let gameGainValue = 0.35;
+let voiceGainValue = 1;
 
-export function setHdmiVolume(v) {
-  hdmiGainValue = Math.max(0, Math.min(1, Number(v)));
-  if (hdmiGainNode) hdmiGainNode.gain.value = hdmiGainValue;
+export function setGameVolume(v) {
+  gameGainValue = Math.max(0, Math.min(1, Number(v)));
+  if (gameGainNode) gameGainNode.gain.value = gameGainValue;
 }
 
-export function getHdmiVolume() {
-  return hdmiGainValue;
+export function setVoiceVolume(v) {
+  voiceGainValue = Math.max(0, Math.min(1, Number(v)));
+  if (voiceGainNode) voiceGainNode.gain.value = voiceGainValue;
 }
+
+export function setHdmiVolume(v) { setGameVolume(v); }
+export function getHdmiVolume() { return gameGainValue; }
+export function getGameVolume() { return gameGainValue; }
+export function getVoiceVolume() { return voiceGainValue; }
 
 export async function resumeAudioContexts() {
   if (!audioCtx) {
@@ -140,7 +148,7 @@ export async function resumeAudioContexts() {
 }
 
 /** Mix originals (not clones) so Chrome actually emits samples into MediaRecorder. */
-export async function mixAudioTracks(tracks, { hear = false, hdmiTracks = [] } = {}) {
+export async function mixAudioTracks(tracks, { hear = false, gameTracks = [], micTracks = [] } = {}) {
   await resumeAudioContexts();
   mixGraph.forEach(n => { try { n.disconnect(); } catch (_) {} });
   mixGraph = [];
@@ -149,22 +157,25 @@ export async function mixAudioTracks(tracks, { hear = false, hdmiTracks = [] } =
   if (!live.length) return [];
   if (!audioCtx) return live;
   const dest = audioCtx.createMediaStreamDestination();
-  hdmiGainNode = audioCtx.createGain();
-  hdmiGainNode.gain.value = hdmiGainValue;
-  hdmiGainNode.connect(dest);
-  mixGraph.push(hdmiGainNode, dest);
-  const hdmiSet = new Set(hdmiTracks);
+  gameGainNode = audioCtx.createGain();
+  voiceGainNode = audioCtx.createGain();
+  gameGainNode.gain.value = gameGainValue;
+  voiceGainNode.gain.value = voiceGainValue;
+  gameGainNode.connect(dest);
+  voiceGainNode.connect(dest);
+  mixGraph.push(gameGainNode, voiceGainNode, dest);
+  const micSet = new Set(micTracks);
   live.forEach(t => {
     try {
       const src = audioCtx.createMediaStreamSource(new MediaStream([t]));
-      if (hdmiSet.has(t)) src.connect(hdmiGainNode);
-      else src.connect(dest);
+      if (micSet.has(t)) src.connect(voiceGainNode);
+      else src.connect(gameGainNode);
       mixGraph.push(src);
     } catch (_) {}
   });
-  // Monitor game/HDMI only — never the mic (OBS/Zoom default: no speaker echo).
+  // Monitor game only — never the mic (OBS/Zoom default: no speaker echo).
   if (hear) {
-    try { hdmiGainNode.connect(audioCtx.destination); } catch (_) {}
+    try { gameGainNode.connect(audioCtx.destination); } catch (_) {}
   }
   const mixed = dest.stream.getAudioTracks();
   mixed.forEach(t => { t.enabled = true; });
@@ -174,7 +185,8 @@ export async function mixAudioTracks(tracks, { hear = false, hdmiTracks = [] } =
 export function stopAudioMix() {
   mixGraph.forEach(n => { try { n.disconnect(); } catch (_) {} });
   mixGraph = [];
-  hdmiGainNode = null;
+  gameGainNode = null;
+  voiceGainNode = null;
 }
 
 export async function openMicStream(deviceId) {
@@ -237,10 +249,10 @@ export async function startHdmiAudioMonitor(stream) {
   if (!audioCtx) return false;
   try {
     hdmiMonitorNode = audioCtx.createMediaStreamSource(new MediaStream(tracks));
-    hdmiGainNode = audioCtx.createGain();
-    hdmiGainNode.gain.value = hdmiGainValue;
-    hdmiMonitorNode.connect(hdmiGainNode);
-    hdmiGainNode.connect(audioCtx.destination);
+    gameGainNode = audioCtx.createGain();
+    gameGainNode.gain.value = gameGainValue;
+    hdmiMonitorNode.connect(gameGainNode);
+    gameGainNode.connect(audioCtx.destination);
     return true;
   } catch (_) {
     return false;

@@ -18,10 +18,10 @@ import {
   mixAudioTracks, getDisplayMediaOptions, createRecorder, canvasCaptureFps,
   mimeToExtension, openMicStream, resumeAudioContexts, mountHiddenVideo,
   requestAudioPermission, openHdmiAudioStream, startHdmiAudioMonitor, stopHdmiAudioMonitor,
-  setHdmiVolume, stopAudioMix, pickSocialMimeType,
+  setHdmiVolume, stopAudioMix, pickSocialMimeType, setGameVolume, setVoiceVolume,
 } from './media.js';
 
-const BUILD = '260905-social';
+const BUILD = '260905-mix';
 const $ = id => document.getElementById(id);
 
 const webcamPip = $('webcamPip');
@@ -441,9 +441,27 @@ $('camSize')?.addEventListener('input', () => {
 
 $('hdmiVol')?.addEventListener('input', () => {
   const v = parseInt($('hdmiVol').value, 10);
-  $('hdmiVolVal').textContent = v + '%';
-  setHdmiVolume(v / 100);
+  syncGameVolumeUi(v, { fromHdmi: true });
 });
+
+$('gameVol')?.addEventListener('input', () => {
+  const v = parseInt($('gameVol').value, 10);
+  syncGameVolumeUi(v, { fromHdmi: false });
+});
+
+$('voiceVol')?.addEventListener('input', () => {
+  const v = parseInt($('voiceVol').value, 10);
+  $('voiceVolVal').textContent = v + '%';
+  setVoiceVolume(v / 100);
+});
+
+function syncGameVolumeUi(v, { fromHdmi } = {}) {
+  if ($('gameVolVal')) $('gameVolVal').textContent = v + '%';
+  if ($('hdmiVolVal')) $('hdmiVolVal').textContent = v + '%';
+  if (!fromHdmi && $('hdmiVol')) $('hdmiVol').value = String(v);
+  if (fromHdmi && $('gameVol')) $('gameVol').value = String(v);
+  setGameVolume(v / 100);
+}
 
 $('capSize')?.addEventListener('input', () => {
   if (captureCardPip.classList.contains('capture-full-preview')) return;
@@ -505,9 +523,7 @@ $('recordBtn').addEventListener('click', () => {
 $('intentCancel')?.addEventListener('click', () => $('recordIntentModal')?.classList.add('hidden'));
 $('intentConfirm')?.addEventListener('click', async () => {
   $('recordIntentModal')?.classList.add('hidden');
-  if ($('intentNotesPlan')?.checked || $('intentVtt')?.checked) {
-    if ($('captionsToggle')) $('captionsToggle').checked = true;
-  }
+  if ($('captionsToggle')) $('captionsToggle').checked = true;
   await startRecording();
 });
 
@@ -614,8 +630,14 @@ async function startRecording() {
     stopHdmiAudioMonitor();
     const canvasStream = composeCanvas.captureStream(canvasCaptureFps());
     const tracks = [...canvasStream.getVideoTracks()];
-    const hdmiTracks = hdmiAudioStream ? [...hdmiAudioStream.getAudioTracks()] : [];
-    const mixedAudio = await mixAudioTracks(audioTracks, { hear: true, hdmiTracks });
+    const gameTracks = [];
+    if (hdmiAudioStream) gameTracks.push(...hdmiAudioStream.getAudioTracks());
+    if (screenStream) gameTracks.push(...screenStream.getAudioTracks());
+    captureFeed.stream?.getAudioTracks?.().forEach(t => {
+      if ($('captureCardAudio')?.checked && !gameTracks.includes(t)) gameTracks.push(t);
+    });
+    const micTracks = micStream ? [...micStream.getAudioTracks()] : [];
+    const mixedAudio = await mixAudioTracks(audioTracks, { hear: true, gameTracks, micTracks });
     mixedAudio.forEach(t => tracks.push(t));
     mixedStream = new MediaStream(tracks);
 
@@ -656,12 +678,29 @@ async function startRecording() {
   }
 }
 
+let captionHoldTimer = null;
+
 function showLiveCaption(text) {
   const el = $('liveCaption');
   if (!el) return;
   const t = (text || '').trim();
   el.textContent = t;
   el.classList.toggle('hidden', !t);
+}
+
+function applyLiveCaption(text) {
+  const t = (text || '').trim();
+  if (t) {
+    clearTimeout(captionHoldTimer);
+    compositor.setCaption(t);
+    showLiveCaption(t);
+    return;
+  }
+  clearTimeout(captionHoldTimer);
+  captionHoldTimer = setTimeout(() => {
+    compositor.setCaption('');
+    showLiveCaption('');
+  }, 2800);
 }
 
 function startCaptions() {
@@ -678,8 +717,7 @@ function startCaptions() {
         captionCues.push({ start: at, end: at, text: e.results[i][0].transcript.trim() });
       }
     }
-    compositor.setCaption(said);
-    showLiveCaption(said);
+    applyLiveCaption(said);
   };
   recognition.onend = () => { if (captionsActive) try { recognition.start(); } catch (_) {} };
   try { recognition.start(); } catch (_) {}
@@ -711,6 +749,7 @@ function cleanupAfterRecord() {
   stopAudioMix();
   compositor.setCaption('');
   showLiveCaption('');
+  clearTimeout(captionHoldTimer);
   compositor.setCaptureAsMain(false);
   composeCanvas.classList.add('hidden');
   $('recordMirrorNote')?.classList.add('hidden');
@@ -772,7 +811,8 @@ $('captureCardOptions').classList.add('hidden');
 applyWebcamPos('bottom-right');
 applyWebcamSize(parseInt($('camSize')?.value || '240', 10));
 applyCaptureSize(parseInt($('capSize')?.value || '560', 10));
-setHdmiVolume(parseInt($('hdmiVol')?.value || '35', 10) / 100);
+setGameVolume(parseInt($('gameVol')?.value || $('hdmiVol')?.value || '35', 10) / 100);
+setVoiceVolume(parseInt($('voiceVol')?.value || '100', 10) / 100);
 applyWidescreen($('widescreenToggle')?.checked !== false);
 setStatus('ready', 'Ready');
 console.log('Screen2D', BUILD);

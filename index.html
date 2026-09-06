@@ -6,7 +6,7 @@
   <title>Screen2D V2 — app5.nextaura.fit</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css?v=260905-social" />
+  <link rel="stylesheet" href="css/style.css?v=260905-mix" />
 </head>
 <body>
   <div class="app">
@@ -14,7 +14,7 @@
       <div class="logo">
         <span class="logo-dot"></span>
         <span class="logo-text">Screen2D V2</span>
-        <span class="build-badge" title="Deployed build">build 260905-social</span>
+        <span class="build-badge" title="Deployed build">build 260905-mix</span>
       </div>
       <div class="status-bar">
         <span class="status-indicator" id="statusIndicator"></span>
@@ -128,6 +128,17 @@
           <div class="mic-select-row" id="micSelectRow">
             <select id="micSelect" class="mic-select"><option value="">Default Microphone</option></select>
           </div>
+          <div class="size-row">
+            <span class="position-label">Game</span>
+            <input type="range" id="gameVol" min="0" max="100" value="35" class="size-slider" />
+            <span class="size-val" id="gameVolVal">35%</span>
+          </div>
+          <div class="size-row">
+            <span class="position-label">Voice</span>
+            <input type="range" id="voiceVol" min="0" max="100" value="100" class="size-slider" />
+            <span class="size-val" id="voiceVolVal">100%</span>
+          </div>
+          <p class="caption-note">Game = RPCS3 / HDMI / system audio. Voice = microphone. Drag Game down while you talk. Captions burn into the video so you can run Voice lower.</p>
           <p class="caption-note">Webcam picture has no sound by itself. Enable Microphone and pick this camera’s mic (not Windows Default).</p>
           <p class="caption-status" id="micDeviceStatus"></p>
         </section>
@@ -212,6 +223,6 @@
 
   <script src="vendor/tfjs/tf.min.js"></script>
   <script src="vendor/body-pix/body-pix.min.umd.js"></script>
-  <script type="module" src="js/app.js?v=260905-social"></script>
+  <script type="module" src="js/app.js?v=260905-mix"></script>
 </body>
 </html>
